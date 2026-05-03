@@ -1,1 +1,2 @@
-# Blossom - a simple modern email app
+# Blossom
+## A simple modern email app
