@@ -1,0 +1,53 @@
+import sys
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio, Gtk
+
+from components.window import MainWindow
+
+# Note: the comments are fully human generated to speed up the development cuz gtk is painful
+
+
+class MyApp(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id="com.yehors.Blossom")
+        self.connect("activate", self.on_activate)
+
+    def on_activate(self, app):
+        self.win = MainWindow(application=app)
+        self.win.set_title("Blossom")
+        self.win.set_default_size(800, 600)
+        self._add_action("preferences", self.on_preferences)
+        self._add_action("shortcuts", self.on_shortcuts)
+        self._add_action("about", self.on_about)
+        self._add_action("quit", self.on_quit)
+        self.win.present()
+
+    def _add_action(self, name, callback):
+        action = Gio.SimpleAction.new(name, None)
+        action.connect("activate", callback)
+        self.add_action(action)
+
+    def on_preferences(self, action, param):
+        print("Preferences clicked")
+
+    def on_shortcuts(self, action, param):
+        print("Shortcuts clicked")
+
+    def on_about(self, action, param):
+        dialog = Adw.AboutDialog(
+            application_name="Blossom",
+            application_icon="mail-unread-symbolic",
+            version="0.1.0",
+        )
+        dialog.present(self.win)
+
+    def on_quit(self, action, param):
+        self.quit()
+
+
+app = MyApp()
+app.run(sys.argv)
