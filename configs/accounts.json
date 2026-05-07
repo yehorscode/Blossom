@@ -1,0 +1,13 @@
+{
+  "email@email.com": {
+    "imap_server": "imap.email.com",
+    "imap_port": "993",
+    "imap_security": "SSL/TLS",
+    "imap_username": "email@email.com",
+    "imap_auth": "password",
+    "smtp_server": "smtp.email.com",
+    "smtp_port": "343",
+    "smtp_security": "SSL/TLS",
+    "smtp_auth": "password"
+  }
+}

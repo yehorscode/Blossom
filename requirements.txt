@@ -1,4 +1,9 @@
+cffi==2.0.0
+cryptography==47.0.0
+jeepney==0.9.0
 pycairo==1.29.0
+pycparser==3.0
 pygobject==3.56.2
 pygobject-stubs==2.17.0
+secretstorage==3.5.0
 typing-extensions==4.15.0
