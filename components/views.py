@@ -1,6 +1,11 @@
 from gi.repository import Adw, Gtk
 
-from functions.emails import delete_all_credentials, save_credentials
+from functions.emails import (
+    delete_all_credentials,
+    get_all_accounts,
+    get_credentials,
+    save_credentials,
+)
 
 
 def build_emails_view():
@@ -119,10 +124,70 @@ def build_settings_view():
     def on_remove_all_accounts_clicked(button):
         delete_all_credentials(sure=True)
 
+    account_list_box = Gtk.Box()
+    accounts = get_all_accounts()
+
+    for account in accounts:
+        single_acc = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        single_acc.set_margin_top(6)
+        single_acc.set_margin_bottom(6)
+        single_acc.set_margin_start(6)
+        single_acc.set_margin_end(6)
+        single_acc.set_css_classes(["card"])
+        acc_label = Gtk.Label(label=account)
+        acc_label.set_hexpand(True)
+        acc_view_info_btn = Gtk.Button()
+        acc_view_info_btn.set_child(
+            Adw.ButtonContent(icon_name="help-about-symbolic", label="View info")
+        )
+        acc_view_info_btn.connect(
+            "clicked", lambda btn, acc=account: on_acc_info_clicked(acc)
+        )
+        single_acc.append(acc_label)
+        single_acc.append(acc_view_info_btn)
+        account_list_box.append(single_acc)
+
+    def on_acc_info_clicked(account: str, parent_widget=account_list_box):
+        dialog = Adw.Dialog()
+        dialog.set_title(account)
+        dialog.set_content_width(400)
+        dialog.set_content_height(300)
+
+        toolbar_view = Adw.ToolbarView()
+
+        header = Adw.HeaderBar()
+        toolbar_view.add_top_bar(header)
+
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content_box.set_margin_top(12)
+        content_box.set_margin_bottom(12)
+        content_box.set_margin_start(12)
+        content_box.set_margin_end(12)
+
+        info = get_credentials(account)
+        if info is None:
+            info = {"Error": "Could not retrieve account info"}
+        else:
+            for key, value in info.items():
+                row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+                key_label = Gtk.Label(label=f"<b>{key}</b>", use_markup=True, xalign=0)
+                key_label.set_hexpand(True)
+                val_label = Gtk.Label(label=str(value), xalign=1)
+                row_box.append(key_label)
+                row_box.append(val_label)
+                content_box.append(row_box)
+
+        toolbar_view.set_content(content_box)
+        dialog.set_child(toolbar_view)
+
+        dialog.present(account_list_box)
+
     add_accounts_button.connect("clicked", on_add_account_clicked)
     remove_all_button.connect("clicked", on_remove_all_accounts_clicked)
+
     add_accounts_box.append(add_accounts_button)
     add_accounts_box.append(remove_all_button)
     box.append(add_accounts_box)
+    box.append(account_list_box)
 
     return box
