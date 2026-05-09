@@ -4,18 +4,6 @@ import os
 import secretstorage
 
 SCHEMA_NAME = "com.yehors.Blossom"
-ATTRIBUTES = [
-    "email",
-    "imap_server",
-    "imap_port",
-    "imap_security",
-    "imap_username",
-    "imap_auth",
-    "smtp_server",
-    "smtp_port",
-    "smtp_security",
-    "smtp_auth",
-]
 
 _conn = None
 
@@ -33,6 +21,10 @@ def get_collection():
 
 def _search_attrs(email: str) -> dict:
     return {"schema": SCHEMA_NAME, "email": email}
+
+
+def _password_attrs(email: str) -> dict:
+    return {"schema": SCHEMA_NAME, "email": email, "kind": "password"}
 
 
 CONFIG_PATH = "configs/accounts.json"
@@ -76,9 +68,13 @@ def save_credentials(
     with open(CONFIG_PATH, "w") as f:
         json.dump(accounts, f, indent=2)
 
+    # Remove legacy entries for this account before saving password-only secret.
+    for item in list(get_collection().search_items(_search_attrs(email))):
+        item.delete()
+
     return get_collection().create_item(
         label=f"Blossom account {email[:5]}",
-        attributes={"schema": SCHEMA_NAME, "email": email},
+        attributes=_password_attrs(email),
         secret=password.encode(),
         replace=True,
     )
@@ -110,15 +106,24 @@ def get_credentials(email: str) -> dict | None:
     if email not in accounts:
         return None
 
-    collection = get_collection()
-    results = list(collection.search_items(_search_attrs(email)))
-    if not results:
+    password = get_password(email)
+    if not password:
         return None
 
-    return accounts[email] | {
-        "email": email,
-        "password": results[0].get_secret().decode(),
-    }
+    return accounts[email] | {"email": email, "password": password}
+
+
+def get_password(email: str) -> str | None:
+    collection = get_collection()
+    results = list(collection.search_items(_password_attrs(email)))
+    if not results:
+        results = list(collection.search_items(_search_attrs(email)))
+    if not results:
+        return None
+    result = results[0]
+    if result.is_locked():
+        result.unlock()
+    return result.get_secret().decode()
 
 
 def delete_credentials(email: str) -> bool:

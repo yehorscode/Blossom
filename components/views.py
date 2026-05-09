@@ -94,6 +94,7 @@ def build_settings_view():
                 smtp_security=smtp_security_row.get_selected_item().get_string(),
                 smtp_auth=smtp_auth.get_selected_item().get_string(),
             )
+            refresh_account_list()
             dialog.close()
 
         save_button.connect("clicked", on_save_clicked)
@@ -121,31 +122,38 @@ def build_settings_view():
         dialog.set_child(toolbar_view)
         dialog.present(button)
 
+    account_list_box = Gtk.Box()
+
+    def refresh_account_list():
+        child = account_list_box.get_first_child()
+        while child:
+            next_child = child.get_next_sibling()
+            account_list_box.remove(child)
+            child = next_child
+
+        for account in get_all_accounts():
+            single_acc = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            single_acc.set_margin_top(6)
+            single_acc.set_margin_bottom(6)
+            single_acc.set_margin_start(6)
+            single_acc.set_margin_end(6)
+            single_acc.set_css_classes(["card"])
+            acc_label = Gtk.Label(label=account)
+            acc_label.set_hexpand(True)
+            acc_view_info_btn = Gtk.Button()
+            acc_view_info_btn.set_child(
+                Adw.ButtonContent(icon_name="help-about-symbolic", label="View info")
+            )
+            acc_view_info_btn.connect(
+                "clicked", lambda btn, acc=account: on_acc_info_clicked(acc)
+            )
+            single_acc.append(acc_label)
+            single_acc.append(acc_view_info_btn)
+            account_list_box.append(single_acc)
+
     def on_remove_all_accounts_clicked(button):
         delete_all_credentials(sure=True)
-
-    account_list_box = Gtk.Box()
-    accounts = get_all_accounts()
-
-    for account in accounts:
-        single_acc = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        single_acc.set_margin_top(6)
-        single_acc.set_margin_bottom(6)
-        single_acc.set_margin_start(6)
-        single_acc.set_margin_end(6)
-        single_acc.set_css_classes(["card"])
-        acc_label = Gtk.Label(label=account)
-        acc_label.set_hexpand(True)
-        acc_view_info_btn = Gtk.Button()
-        acc_view_info_btn.set_child(
-            Adw.ButtonContent(icon_name="help-about-symbolic", label="View info")
-        )
-        acc_view_info_btn.connect(
-            "clicked", lambda btn, acc=account: on_acc_info_clicked(acc)
-        )
-        single_acc.append(acc_label)
-        single_acc.append(acc_view_info_btn)
-        account_list_box.append(single_acc)
+        refresh_account_list()
 
     def on_acc_info_clicked(account: str, parent_widget=account_list_box):
         dialog = Adw.Dialog()
@@ -181,6 +189,8 @@ def build_settings_view():
         dialog.set_child(toolbar_view)
 
         dialog.present(account_list_box)
+
+    refresh_account_list()
 
     add_accounts_button.connect("clicked", on_add_account_clicked)
     remove_all_button.connect("clicked", on_remove_all_accounts_clicked)
