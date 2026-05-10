@@ -68,7 +68,6 @@ def save_credentials(
     with open(CONFIG_PATH, "w") as f:
         json.dump(accounts, f, indent=2)
 
-    # Remove legacy entries for this account before saving password-only secret.
     for item in list(get_collection().search_items(_search_attrs(email))):
         item.delete()
 
@@ -126,7 +125,7 @@ def get_password(email: str) -> str | None:
     return result.get_secret().decode()
 
 
-def delete_credentials(email: str) -> bool:
+def delete_credential(email: str) -> bool:
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, "r") as f:
             accounts = json.load(f)
@@ -150,7 +149,8 @@ def delete_all_credentials(sure=False) -> bool:
     if os.path.exists(CONFIG_PATH):
         os.remove(CONFIG_PATH)
     try:
-        get_collection().delete()
+        for item in list(get_collection().search_items({"schema": SCHEMA_NAME})):
+            item.delete()
     except Exception:
         return False
     return True

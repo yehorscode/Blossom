@@ -1,7 +1,9 @@
 from gi.repository import Adw, Gtk
 
+from components.view_components.comp_settings import on_add_account_clicked
 from functions.emails import (
     delete_all_credentials,
+    delete_credential,
     get_all_accounts,
     get_credentials,
     save_credentials,
@@ -40,89 +42,7 @@ def build_settings_view():
     )
     remove_all_button.add_css_class("destructive-action")
 
-    def on_add_account_clicked(button):
-        dialog = Adw.Dialog()
-        dialog.set_title("Add Account")
-        dialog.set_content_width(400)
-        dialog.set_content_height(500)
-
-        toolbar_view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        toolbar_view.add_top_bar(header)
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        content.set_margin_top(24)
-        content.set_margin_bottom(24)
-        content.set_margin_start(24)
-        content.set_margin_end(24)
-
-        email_row = Adw.EntryRow(title="Email")
-        password_row = Adw.PasswordEntryRow(title="Password")
-        imap_server_row = Adw.EntryRow(title="Imap server")
-        imap_port_row = Adw.EntryRow(title="Imap port")
-        imap_security_row = Adw.ComboRow(title="Imap security")
-        imap_security_row.set_model(Gtk.StringList.new(["None", "SSL/TLS"]))
-        imap_username = Adw.EntryRow(title="Imap username")
-        imap_auth = Adw.ComboRow(title="Imap auth")
-        imap_auth.set_model(Gtk.StringList.new(["password"]))
-        smtp_server_row = Adw.EntryRow(title="Smtp server")
-        smtp_port_row = Adw.EntryRow(title="Smtp port")
-        smtp_security_row = Adw.ComboRow(title="Smtp security")
-        smtp_security_row.set_model(Gtk.StringList.new(["None", "SSL/TLS"]))
-        smtp_auth = Adw.ComboRow(title="Smtp auth")
-        smtp_auth.set_model(Gtk.StringList.new(["password"]))
-        credentials_group = Adw.PreferencesGroup(title="Credentials")
-        credentials_group.add(email_row)
-        credentials_group.add(password_row)
-        save_button = Gtk.Button(label="Save account")
-        save_button.add_css_class("suggested-action")
-        save_button.set_margin_top(12)
-
-        def on_save_clicked(button):
-            save_credentials(
-                email=email_row.get_text(),
-                password=password_row.get_text(),
-                imap_server=imap_server_row.get_text(),
-                imap_port=imap_port_row.get_text(),
-                imap_security=imap_security_row.get_selected_item().get_string(),
-                imap_username=imap_username.get_text(),
-                imap_auth=imap_auth.get_selected_item().get_string(),
-                smtp_server=smtp_server_row.get_text(),
-                smtp_port=smtp_port_row.get_text(),
-                smtp_security=smtp_security_row.get_selected_item().get_string(),
-                smtp_auth=smtp_auth.get_selected_item().get_string(),
-            )
-            refresh_account_list()
-            dialog.close()
-
-        save_button.connect("clicked", on_save_clicked)
-        content.append(save_button)
-
-        imap_group = Adw.PreferencesGroup(title="IMAP Configuration")
-        imap_group.add(imap_server_row)
-        imap_group.add(imap_port_row)
-        imap_group.add(imap_security_row)
-        imap_group.add(imap_username)
-        imap_group.add(imap_auth)
-
-        smtp_group = Adw.PreferencesGroup(title="SMTP Configuration")
-        smtp_group.add(smtp_server_row)
-        smtp_group.add(smtp_port_row)
-        smtp_group.add(smtp_security_row)
-        smtp_group.add(smtp_auth)
-
-        content.append(credentials_group)
-        content.append(imap_group)
-        content.append(smtp_group)
-
-        scrolled.set_child(content)
-        toolbar_view.set_content(scrolled)
-        dialog.set_child(toolbar_view)
-        dialog.present(button)
-
-    account_list_box = Gtk.Box()
+    account_list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
     def refresh_account_list():
         child = account_list_box.get_first_child()
@@ -140,20 +60,66 @@ def build_settings_view():
             single_acc.set_css_classes(["card"])
             acc_label = Gtk.Label(label=account)
             acc_label.set_hexpand(True)
+            acc_delete_button = Gtk.Button()
+            acc_delete_button.set_child(
+                Adw.ButtonContent(icon_name="edit-delete-symbolic", label="Delete")
+            )
             acc_view_info_btn = Gtk.Button()
             acc_view_info_btn.set_child(
                 Adw.ButtonContent(icon_name="help-about-symbolic", label="View info")
+            )
+            acc_delete_button.connect(
+                "clicked", lambda btn, acc=account: on_acc_del_clicked(acc)
             )
             acc_view_info_btn.connect(
                 "clicked", lambda btn, acc=account: on_acc_info_clicked(acc)
             )
             single_acc.append(acc_label)
             single_acc.append(acc_view_info_btn)
+            single_acc.append(acc_delete_button)
             account_list_box.append(single_acc)
 
     def on_remove_all_accounts_clicked(button):
-        delete_all_credentials(sure=True)
-        refresh_account_list()
+        def confirm_delete_all(dialog, response):
+            if response == "delete":
+                delete_all_credentials(sure=True)
+                refresh_account_list()
+
+        alert = Adw.AlertDialog()
+        alert.set_heading("Delete everything?")
+        alert.set_body(
+            "This is a permanent action that cannot be udone. Are you fully sure?"
+        )
+        alert.add_response("cancel", "Cancel")
+        alert.add_response("delete", "Delete All")
+        alert.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        alert.connect("response", confirm_delete_all)
+        alert.present()
+
+    def on_acc_del_clicked(account: str):
+        def confirm_delete_account(dialog, response):
+            if response == "delete":
+                delete_credential(account)
+                refresh_account_list()
+                success_alert = Adw.AlertDialog()
+                success_alert.set_heading("Deleted")
+                success_alert.set_body(f"Account {account} has been deleted.")
+                success_alert.add_response("ok", "OK")
+                success_alert.set_response_appearance(
+                    "ok", Adw.ResponseAppearance.SUGGESTED
+                )
+                success_alert.present()
+
+        alert = Adw.AlertDialog()
+        alert.set_heading(f"Delete {account}?")
+        alert.set_body(
+            "This will permanently remove this email account and all associated credentials."
+        )
+        alert.add_response("cancel", "Cancel")
+        alert.add_response("delete", "Delete")
+        alert.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        alert.connect("response", confirm_delete_account)
+        alert.present()
 
     def on_acc_info_clicked(account: str, parent_widget=account_list_box):
         dialog = Adw.Dialog()
@@ -192,7 +158,9 @@ def build_settings_view():
 
     refresh_account_list()
 
-    add_accounts_button.connect("clicked", on_add_account_clicked)
+    add_accounts_button.connect(
+        "clicked", lambda btn: on_add_account_clicked(btn, refresh_account_list)
+    )
     remove_all_button.connect("clicked", on_remove_all_accounts_clicked)
 
     add_accounts_box.append(add_accounts_button)
