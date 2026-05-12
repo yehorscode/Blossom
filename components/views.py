@@ -13,13 +13,52 @@ from functions.emails import (
 )
 
 
+def makeEmailRow(email):
+    container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    # container.set_margin_top(4)
+    # container.set_margin_bottom(4)
+    # container.set_margin_start(4)
+    # container.set_margin_end(4)
+
+    em_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+
+    inner_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    inner_content.set_margin_top(6)
+    inner_content.set_margin_bottom(6)
+    inner_content.set_margin_start(6)
+    inner_content.set_margin_end(6)
+
+    email_title = Gtk.Label(label=email["subject"], xalign=0)
+    email_title.add_css_class("heading")
+    email_from = Gtk.Label(label=email["from"], xalign=0)
+    email_from.set_hexpand(True)
+    email_date = Gtk.Label(label=email["date"], xalign=0)
+    email_from.add_css_class("caption")
+    email_date.add_css_class("caption")
+    top_em_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+    top_em_box.append(email_from)
+    top_em_box.append(email_date)
+    inner_content.append(top_em_box)
+    inner_content.append(email_title)
+    em_box.append(inner_content)
+    container.append(em_box)
+    but = Gtk.Button()
+    but.set_child(container)
+    return but
+
+
 class EmailsView(Gtk.Box):
     def __init__(self):
-        super().__init__()
-        self.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self.spinner = Gtk.Spinner()
+        self.email_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.emails = []
+        self.append(self.spinner)
+        self.append(self.email_list)
+        self.refetch_emails()
 
     def refetch_emails(self):
+        self.spinner.start()
         thread = threading.Thread(target=self._fetch_emails_thread)
         thread.daemon = True
         thread.start()
@@ -30,15 +69,21 @@ class EmailsView(Gtk.Box):
             try:
                 temp_emails = fetch_emails(account)
                 self.emails.append(temp_emails)
-                print(temp_emails)
             except Exception as e:
                 print(f"Error fetching emails for {account}: {e}")
 
-        # Update UI from main thread
         GLib.idle_add(self._on_emails_fetched)
 
+    def _render_emails(self, emails):
+        for email in emails:
+            email_row = makeEmailRow(email)
+            self.email_list.append(email_row)
+
     def _on_emails_fetched(self):
+        self.spinner.stop()
         print(f"Fetched {len(self.emails)} email batches")
+        for email_batch in self.emails:
+            self._render_emails(email_batch)
 
 
 def build_emails_view():
@@ -81,18 +126,21 @@ def build_settings_view():
             child = next_child
 
         for account in get_all_accounts():
-            single_acc = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            single_acc.set_margin_top(6)
-            single_acc.set_margin_bottom(6)
-            single_acc.set_margin_start(6)
-            single_acc.set_margin_end(6)
+            single_acc = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            single_acc.set_margin_top(8)
+            single_acc.set_margin_bottom(8)
+            single_acc.set_margin_start(12)
+            single_acc.set_margin_end(12)
             single_acc.set_css_classes(["card"])
             acc_label = Gtk.Label(label=account)
             acc_label.set_hexpand(True)
+
+            button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             acc_delete_button = Gtk.Button()
             acc_delete_button.set_child(
                 Adw.ButtonContent(icon_name="edit-delete-symbolic", label="Delete")
             )
+            acc_delete_button.add_css_class("destructive-action")
             acc_view_info_btn = Gtk.Button()
             acc_view_info_btn.set_child(
                 Adw.ButtonContent(icon_name="help-about-symbolic", label="View info")
@@ -103,9 +151,10 @@ def build_settings_view():
             acc_view_info_btn.connect(
                 "clicked", lambda btn, acc=account: on_acc_info_clicked(acc)
             )
+            button_box.append(acc_view_info_btn)
+            button_box.append(acc_delete_button)
             single_acc.append(acc_label)
-            single_acc.append(acc_view_info_btn)
-            single_acc.append(acc_delete_button)
+            single_acc.append(button_box)
             account_list_box.append(single_acc)
 
     def on_remove_all_accounts_clicked(button):
