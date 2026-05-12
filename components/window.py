@@ -7,13 +7,9 @@ from components.views import build_emails_view, build_folders_view, build_settin
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        mainbox = Adw.NavigationSplitView()
-        header = Adw.HeaderBar()
-        toolbar_view = Adw.ToolbarView()
-        toolbar_view.add_top_bar(header)
-        toolbar_view.set_content(mainbox)
 
-        # Header config
+        # Header
+        header = Adw.HeaderBar()
         menu = Gio.Menu()
         section = Gio.Menu()
         section.append("_Preferences", "app.preferences")
@@ -26,38 +22,38 @@ class MainWindow(Adw.ApplicationWindow):
         header_menu_button.set_menu_model(menu)
         header.pack_end(header_menu_button)
 
-        # Sidebar config
-        sidebar_content, sidebar_list, sidebar_bottom_list = build_sidebar()
-        sidebar_page = Adw.NavigationPage(title="Blossom")
-        sidebar_page.set_child(sidebar_content)
-
-        # Sidebar view stack
+        # Content stack
         self.stack = Gtk.Stack()
         self.stack.set_margin_start(12)
         self.stack.set_margin_end(12)
-        self.stack.add_named(build_emails_view(), "emails")
-        self.stack.add_named(build_folders_view(), "folders")
-        self.stack.add_named(build_settings_view(), "settings")
-        sidebar_list.connect(
-            "row-selected",
-            self.on_sidebar_selected,
-            ["emails", "folders"],
-            sidebar_bottom_list,
-        )
-        sidebar_bottom_list.connect(
-            "row-selected", self.on_sidebar_selected, ["settings"], sidebar_list
-        )
+        self.emails_view = build_emails_view()
+        self.stack.add_named(self.emails_view, "Emails")
+        self.stack.add_named(build_folders_view(), "Folders")
+        self.stack.add_named(build_settings_view(), "Settings")
+        # Sidebar
+        sidebar_content, sidebar, refresh_button = build_sidebar()
+        sidebar.connect("row-selected", self._on_sidebar_selected)
+        refresh_button.connect("clicked", self._on_refresh_clicked)
 
-        # Main content config
-        content_page = Adw.NavigationPage(title="Content")
-        content_page.set_child(self.stack)
+        # Layout
+        toolbar_view = Adw.ToolbarView()
+        toolbar_view.add_top_bar(header)
 
-        mainbox.set_sidebar(sidebar_page)
-        mainbox.set_content(content_page)
+        split = Adw.NavigationSplitView()
+        split.set_sidebar(Adw.NavigationPage(title="Blossom", child=sidebar_content))
+        split.set_content(Adw.NavigationPage(title="Content", child=self.stack))
+
+        toolbar_view.set_content(split)
         self.set_content(toolbar_view)
+        self.set_default_size(900, 600)
 
-    def on_sidebar_selected(self, listbox, row, page_names, other_list):
+    def _on_sidebar_selected(self, listbox, row):
         if row is None:
             return
-        other_list.unselect_all()
+        page_names = ["Emails", "Folders", "Settings"]
         self.stack.set_visible_child_name(page_names[row.get_index()])
+
+    def _on_refresh_clicked(self, button):
+        if hasattr(self.emails_view, "refetch_emails"):
+            self.emails_view.refetch_emails()
+            print("Emails refreshed")

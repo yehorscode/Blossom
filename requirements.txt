@@ -1,4 +1,5 @@
 cffi==2.0.0
+colorama==0.4.6
 cryptography==47.0.0
 jeepney==0.9.0
 pycairo==1.29.0

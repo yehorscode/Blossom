@@ -1,6 +1,9 @@
-from gi.repository import Adw, Gtk
+import threading
+
+from gi.repository import Adw, GLib, Gtk
 
 from components.view_components.comp_settings import on_add_account_clicked
+from functions.ear import fetch_emails
 from functions.emails import (
     delete_all_credentials,
     delete_credential,
@@ -10,10 +13,36 @@ from functions.emails import (
 )
 
 
+class EmailsView(Gtk.Box):
+    def __init__(self):
+        super().__init__()
+        self.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+        self.emails = []
+
+    def refetch_emails(self):
+        thread = threading.Thread(target=self._fetch_emails_thread)
+        thread.daemon = True
+        thread.start()
+
+    def _fetch_emails_thread(self):
+        self.emails.clear()
+        for account in get_all_accounts():
+            try:
+                temp_emails = fetch_emails(account)
+                self.emails.append(temp_emails)
+                print(temp_emails)
+            except Exception as e:
+                print(f"Error fetching emails for {account}: {e}")
+
+        # Update UI from main thread
+        GLib.idle_add(self._on_emails_fetched)
+
+    def _on_emails_fetched(self):
+        print(f"Fetched {len(self.emails)} email batches")
+
+
 def build_emails_view():
-    box = Gtk.Box()
-    box.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
-    return box
+    return EmailsView()
 
 
 def build_folders_view():
