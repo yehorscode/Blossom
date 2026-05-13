@@ -1,11 +1,46 @@
 import json
 import os
+import sqlite3
+from datetime import datetime
 
 import secretstorage
 
 SCHEMA_NAME = "com.yehors.Blossom"
 
 _conn = None
+_db_conn = None
+
+
+def get_db_connection():
+    global _db_conn
+    if _db_conn is None:
+        _db_conn = sqlite3.connect("emails.db", check_same_thread=False)
+        _db_conn.row_factory = sqlite3.Row
+    return _db_conn
+
+
+def init_email_db():
+    """Initialize email storage schema."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account TEXT NOT NULL,
+            uid TEXT NOT NULL,
+            from_addr TEXT,
+            date TEXT,
+            subject TEXT,
+            body_plain TEXT,
+            body_html TEXT,
+            to_addr TEXT,
+            fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(account, uid)
+        )
+        """
+    )
+    conn.commit()
 
 
 def get_connection():
@@ -154,6 +189,100 @@ def delete_all_credentials(sure=False) -> bool:
     except Exception:
         return False
     return True
+
+
+def save_emails(account: str, emails: list[dict]) -> int:
+    """Save emails to database, skipping duplicates. Returns count of new emails saved."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    saved = 0
+
+    for email in emails:
+        try:
+            cursor.execute(
+                """
+                INSERT INTO emails (account, uid, from_addr, date, subject, body_plain, body_html, to_addr)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    account,
+                    email["uid"],
+                    email.get("from", ""),
+                    email.get("date", ""),
+                    email.get("subject", ""),
+                    email.get("body_plain", ""),
+                    email.get("body_html", ""),
+                    email.get("to", ""),
+                ),
+            )
+            saved += 1
+        except sqlite3.IntegrityError:
+            pass
+
+    conn.commit()
+    return saved
+
+
+def get_emails_from_db(account: str | None = None) -> list[dict]:
+    """Retrieve emails from database. If account is None, return all."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    if account:
+        cursor.execute(
+            "SELECT * FROM emails WHERE account = ? ORDER BY date DESC",
+            (account,),
+        )
+    else:
+        cursor.execute("SELECT * FROM emails ORDER BY date DESC")
+
+    rows = cursor.fetchall()
+    emails = []
+    for row in rows:
+        email_dict = dict(row)
+        # Map DB column names to UI expected keys
+        email_dict["from"] = email_dict.pop("from_addr")
+        email_dict["to"] = email_dict.pop("to_addr")
+        emails.append(email_dict)
+    return emails
+
+
+def get_email_by_uid(account: str, uid: str) -> dict | None:
+    """Retrieve email by account and uid from db"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM emails WHERE account = ? AND uid = ?",
+        (account, uid),
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def fetch_all_emails_and_store() -> int:
+    """Fetch and save emails (all)"""
+    from functions.ear import fetch_emails
+
+    total_new = 0
+    for account in get_all_accounts():
+        try:
+            emails = fetch_emails(account)
+            new_count = save_emails(account, emails)
+            total_new += new_count
+        except Exception as e:
+            print(f"Error fetching emails for {account}: {e}")
+    return total_new
+
+
+def get_all_emails_cached() -> list[list[dict]]:
+    """Get all emails from db"""
+    accounts = get_all_accounts()
+    all_emails = []
+    for account in accounts:
+        emails = get_emails_from_db(account)
+        if emails:
+            all_emails.append(emails)
+    return all_emails
 
 
 # print(

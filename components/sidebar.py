@@ -1,4 +1,4 @@
-from gi.repository import Gtk
+from gi.repository import Adw, Gtk
 
 
 def make_sidebar_item(icon, label):
@@ -29,6 +29,18 @@ def build_sidebar():
     refresh_button.set_margin_start(6)
     refresh_button.set_margin_end(6)
 
+    update_spinner = Adw.Spinner()
+    update_label = Gtk.Label(label="Updating...")
+    update_indicator = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    update_indicator.append(update_spinner)
+    update_indicator.append(update_label)
+    update_indicator.add_css_class("body")
+    update_indicator.set_margin_top(6)
+    update_indicator.set_margin_bottom(6)
+    update_indicator.set_margin_start(6)
+    update_indicator.set_margin_end(6)
+    update_indicator.set_visible(False)
+
     sidebar_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     sidebar_content.set_vexpand(True)
     sidebar_content.set_margin_top(6)
@@ -39,6 +51,7 @@ def build_sidebar():
     spacer = Gtk.Box()
     spacer.set_vexpand(True)
     sidebar_content.append(spacer)
+    sidebar_content.append(update_indicator)
     sidebar_content.append(refresh_button)
 
-    return sidebar_content, sidebar, refresh_button
+    return sidebar_content, sidebar, refresh_button, update_indicator

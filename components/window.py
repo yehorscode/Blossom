@@ -31,9 +31,12 @@ class MainWindow(Adw.ApplicationWindow):
         self.stack.add_named(build_folders_view(), "Folders")
         self.stack.add_named(build_settings_view(), "Settings")
         # Sidebar
-        sidebar_content, sidebar, refresh_button = build_sidebar()
+        sidebar_content, sidebar, refresh_button, update_indicator = build_sidebar()
         sidebar.connect("row-selected", self._on_sidebar_selected)
         refresh_button.connect("clicked", self._on_refresh_clicked)
+        
+        self.update_indicator = update_indicator
+        self.emails_view.update_indicator = update_indicator
 
         # Layout
         toolbar_view = Adw.ToolbarView()

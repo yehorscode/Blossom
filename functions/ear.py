@@ -35,13 +35,9 @@ def on_start():
 
 
 def _get_connection(account: str, credentials: dict) -> imap.IMAP4_SSL:
-    connection = imap_connections.get(account)
-    if connection is not None:
-        return connection
     connection = imap.IMAP4_SSL(
         host=credentials["imap_server"], port=credentials["imap_port"]
     )
-    imap_connections[account] = connection
     return connection
 
 
@@ -97,46 +93,52 @@ def fetch_emails(
     conn = _get_connection(account, credentials)
 
     try:
-        conn.login(user=credentials["imap_username"], password=credentials["password"])
-    except imap.IMAP4.error as e:
-        if "state AUTH" not in str(e) and "already authenticated" not in str(e).lower():
-            raise
+        try:
+            conn.login(user=credentials["imap_username"], password=credentials["password"])
+        except imap.IMAP4.error as e:
+            if "state AUTH" not in str(e) and "already authenticated" not in str(e).lower():
+                raise
 
-    typ, _ = conn.select("INBOX", readonly=True)
-    if typ != "OK":
-        raise RuntimeError("Failed to select INBOX")
+        typ, _ = conn.select("INBOX", readonly=True)
+        if typ != "OK":
+            raise RuntimeError("Failed to select INBOX")
 
-    typ, data = conn.search(None, "ALL")
-    if typ != "OK":
-        raise RuntimeError("Failed to search mailbox")
+        typ, data = conn.search(None, "ALL")
+        if typ != "OK":
+            raise RuntimeError("Failed to search mailbox")
 
-    uids = data[0].split()[-limit:]
-    emails: list[dict[str, str]] = []
+        uids = data[0].split()[-limit:]
+        emails: list[dict[str, str]] = []
 
-    for uid in reversed(uids):
-        typ, msg_data = conn.fetch(uid, "(RFC822)")
-        if typ != "OK" or not msg_data or not msg_data[0]:
-            continue
+        for uid in reversed(uids):
+            typ, msg_data = conn.fetch(uid, "(RFC822)")
+            if typ != "OK" or not msg_data or not msg_data[0]:
+                continue
 
-        if not isinstance(msg_data[0], tuple):
-            continue
+            if not isinstance(msg_data[0], tuple):
+                continue
 
-        raw_msg = msg_data[0][1]
-        msg = email.message_from_bytes(raw_msg)
-        body_plain, body_html = _extract_bodies(msg)
+            raw_msg = msg_data[0][1]
+            msg = email.message_from_bytes(raw_msg)
+            body_plain, body_html = _extract_bodies(msg)
 
-        emails.append(
-            {
-                "uid": uid.decode(errors="replace"),
-                "from": msg.get("From", ""),
-                "date": msg.get("Date", ""),
-                "subject": _decode_subject(msg.get("Subject")),
-                "body_plain": body_plain,
-                "body_html": body_html,
-                "to": msg.get("To", ""),
-            }
-        )
+            emails.append(
+                {
+                    "uid": uid.decode(errors="replace"),
+                    "from": msg.get("From", ""),
+                    "date": msg.get("Date", ""),
+                    "subject": _decode_subject(msg.get("Subject")),
+                    "body_plain": body_plain,
+                    "body_html": body_html,
+                    "to": msg.get("To", ""),
+                }
+            )
 
-    if callback:
-        callback(emails)
-    return emails
+        if callback:
+            callback(emails)
+        return emails
+    finally:
+        try:
+            conn.close()
+        except:
+            pass

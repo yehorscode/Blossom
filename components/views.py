@@ -3,12 +3,14 @@ import threading
 from gi.repository import Adw, GLib, Gtk
 
 from components.view_components.comp_settings import on_add_account_clicked
-from functions.ear import fetch_emails
 from functions.emails import (
     delete_all_credentials,
     delete_credential,
+    fetch_all_emails_and_store,
     get_all_accounts,
+    get_all_emails_cached,
     get_credentials,
+    init_email_db,
     save_credentials,
 )
 
@@ -33,7 +35,7 @@ def makeEmailRow(email):
     email_from = Gtk.Label(label=email["from"], xalign=0)
     email_from.set_hexpand(True)
     email_date = Gtk.Label(label=email["date"], xalign=0)
-    email_from.add_css_class("caption")
+    email_from.add_css_class("caption-heading")
     email_date.add_css_class("caption")
     top_em_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
     top_em_box.append(email_from)
@@ -47,41 +49,89 @@ def makeEmailRow(email):
     return but
 
 
+# TODO: add another sidebar to see the actual body of the emails
+# 	- also somehow figure out html rendering in gtk :skulk:
 class EmailsView(Gtk.Box):
     def __init__(self):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
-        self.spinner = Gtk.Spinner()
+        init_email_db()
+
+        self.spinner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.spinny_thing = Adw.Spinner()
+        self.spinny_thing.set_size_request(50, 50)
+        self.spinny_thing.add_css_class("large")
+        self.spinner_label = Gtk.Label(label="Getting your emails!")
+        self.spinner_label.add_css_class("heading")
+        self.spinner.set_halign(Gtk.Align.CENTER)
+        self.spinner.set_valign(Gtk.Align.CENTER)
+        self.spinner.set_hexpand(True)
+        self.spinner.set_vexpand(True)
         self.email_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.emails = []
+        self.updating = False
+        self.update_indicator = None
+
+        self.spinner.append(self.spinny_thing)
+        self.spinner.append(self.spinner_label)
         self.append(self.spinner)
-        self.append(self.email_list)
+        
+        scroll_window = Gtk.ScrolledWindow()
+        scroll_window.set_child(self.email_list)
+        scroll_window.set_vexpand(True)
+        scroll_window.set_hexpand(True)
+        self.append(scroll_window)
         self.refetch_emails()
 
     def refetch_emails(self):
-        self.spinner.start()
         thread = threading.Thread(target=self._fetch_emails_thread)
         thread.daemon = True
         thread.start()
 
     def _fetch_emails_thread(self):
-        self.emails.clear()
-        for account in get_all_accounts():
-            try:
-                temp_emails = fetch_emails(account)
-                self.emails.append(temp_emails)
-            except Exception as e:
-                print(f"Error fetching emails for {account}: {e}")
+        self.updating = True
+        GLib.idle_add(
+            lambda: (
+                self.update_indicator.set_visible(True)
+            )
+        )
+        
+        self.emails = get_all_emails_cached()
+        if not self.email_list.get_first_child():
+            GLib.idle_add(self._on_emails_fetched_from_cache)
 
-        GLib.idle_add(self._on_emails_fetched)
+        fetch_all_emails_and_store()
+        self.emails = get_all_emails_cached()
+        GLib.idle_add(self._on_emails_updated)
+
+    def _clear_email_list(self):
+        child = self.email_list.get_first_child()
+        while child:
+            next_child = child.get_next_sibling()
+            self.email_list.remove(child)
+            child = next_child
 
     def _render_emails(self, emails):
         for email in emails:
             email_row = makeEmailRow(email)
             self.email_list.append(email_row)
 
-    def _on_emails_fetched(self):
-        self.spinner.stop()
-        print(f"Fetched {len(self.emails)} email batches")
+    def _on_emails_fetched_from_cache(self):
+        self.spinner.set_hexpand(False)
+        self.spinner.set_vexpand(False)
+        self.spinner_label.set_hexpand(False)
+        self.spinner_label.set_vexpand(False)
+        self.spinner_label.set_visible(False)
+        self.spinner.set_visible(False)
+        print(f"Loaded {len(self.emails)} email batches from cache")
+        if not self.updating:
+            for email_batch in self.emails:
+                self._render_emails(email_batch)
+
+    def _on_emails_updated(self):
+        self.update_indicator.set_visible(False)
+        self.updating = False
+        self._clear_email_list()
+        print(f"Updated with {len(self.emails)} email batches")
         for email_batch in self.emails:
             self._render_emails(email_batch)
 
