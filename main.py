@@ -11,7 +11,7 @@ from components.window import MainWindow
 # Note: the comments are fully human generated to speed up the development cuz gtk is painful
 
 
-class MyApp(Adw.Application):
+class BlossomApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id="com.yehors.Blossom")
         self.connect("activate", self.on_activate)
@@ -19,7 +19,7 @@ class MyApp(Adw.Application):
     def on_activate(self, app):
         self.win = MainWindow(application=app)
         self.win.set_title("Blossom")
-        self.win.set_default_size(800, 600)
+        self.win.set_default_size(1000, 800)
         self._add_action("preferences", self.on_preferences)
         self._add_action("shortcuts", self.on_shortcuts)
         self._add_action("about", self.on_about)
@@ -49,5 +49,5 @@ class MyApp(Adw.Application):
         self.quit()
 
 
-app = MyApp()
+app = BlossomApp()
 app.run(sys.argv)

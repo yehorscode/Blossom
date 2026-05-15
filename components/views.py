@@ -1,6 +1,10 @@
+import html
 import threading
 
-from gi.repository import Adw, GLib, Gtk
+import gi
+
+gi.require_version("WebKit", "6.0")
+from gi.repository import Adw, GLib, Gtk, WebKit
 
 from components.view_components.comp_settings import on_add_account_clicked
 from functions.emails import (
@@ -15,7 +19,7 @@ from functions.emails import (
 )
 
 
-def makeEmailRow(email):
+def makeEmailRow(email, on_clicked_callback=None):
     container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     # container.set_margin_top(4)
     # container.set_margin_bottom(4)
@@ -46,6 +50,8 @@ def makeEmailRow(email):
     container.append(em_box)
     but = Gtk.Button()
     but.set_child(container)
+    if on_clicked_callback:
+        but.connect("clicked", lambda btn: on_clicked_callback(email))
     return but
 
 
@@ -55,32 +61,85 @@ class EmailsView(Gtk.Box):
     def __init__(self):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         init_email_db()
-
-        self.spinner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self.spinny_thing = Adw.Spinner()
-        self.spinny_thing.set_size_request(50, 50)
-        self.spinny_thing.add_css_class("large")
-        self.spinner_label = Gtk.Label(label="Getting your emails!")
-        self.spinner_label.add_css_class("heading")
-        self.spinner.set_halign(Gtk.Align.CENTER)
-        self.spinner.set_valign(Gtk.Align.CENTER)
-        self.spinner.set_hexpand(True)
-        self.spinner.set_vexpand(True)
+        self.main_container = Adw.OverlaySplitView()
+        self.main_container.set_sidebar_position(Gtk.PackType.END)
+        self.main_container.set_show_sidebar(False)
         self.email_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.email_extended = Adw.Bin()
+        self.email_extended.set_visible(False)
         self.emails = []
         self.updating = False
         self.update_indicator = None
+        self.email_details = self.make_email_details()
+        self.email_extended.set_child(self.email_details)
 
-        self.spinner.append(self.spinny_thing)
-        self.spinner.append(self.spinner_label)
-        self.append(self.spinner)
-        
         scroll_window = Gtk.ScrolledWindow()
         scroll_window.set_child(self.email_list)
         scroll_window.set_vexpand(True)
         scroll_window.set_hexpand(True)
-        self.append(scroll_window)
+        self.main_container.set_content(scroll_window)
+        self.main_container.set_sidebar(self.email_extended)
+
+        self.main_container.set_sidebar_width_fraction(0.8)
+        self.append(self.main_container)
         self.refetch_emails()
+
+    def on_email_clicked(self, email):
+        self.main_container.set_show_sidebar(True)
+        self.email_extended.set_visible(True)
+        self.date_label.set_label(str(email.get("date", "")))
+        self.sender_label.set_label(str(email.get("from", "")))
+        self.subject_label.set_label(str(email.get("subject", "")))
+        self.body_view.load_html(self._build_email_html(email), "about:blank")
+
+    def _build_email_html(self, email: dict) -> str:
+        body_plain = email.get("body_plain", "")
+        body_html = email.get("body_html", "")
+        if body_html:
+            return body_html
+        if body_plain:
+            escaped_plain = html.escape(body_plain).replace("\n", "<br>")
+            return f"<html><body>{escaped_plain}</body></html>"
+        return "<html><body><i>No message body</i></body></html>"
+
+    def make_email_details(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        top_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.date_label = Gtk.Label(label="")
+        self.date_label.set_xalign(0)
+        self.date_label.add_css_class("caption")
+        self.sender_label = Gtk.Label(label="")
+        self.sender_label.set_xalign(0)
+        self.sender_label.add_css_class("caption")
+        self.subject_label = Gtk.Label(label="")
+        self.subject_label.set_xalign(0)
+        self.subject_label.add_css_class("heading")
+
+        top_box.append(self.date_label)
+        top_box.append(self.sender_label)
+        box.append(top_box)
+        box.append(self.subject_label)
+
+        self.body_view = WebKit.WebView()
+        self.body_view.set_hexpand(True)
+        self.body_view.set_vexpand(True)
+        body_settings = self.body_view.get_settings()
+        body_settings.set_enable_javascript(False)
+        body_settings.set_auto_load_images(True)
+        self.body_view.load_html(
+            "<html><body><i>Select an email</i></body></html>", "about:blank"
+        )
+
+        body_scroll = Gtk.ScrolledWindow()
+        body_scroll.set_hexpand(True)
+        body_scroll.set_vexpand(True)
+        body_scroll.set_child(self.body_view)
+        box.append(body_scroll)
+        return box
 
     def refetch_emails(self):
         thread = threading.Thread(target=self._fetch_emails_thread)
@@ -89,12 +148,8 @@ class EmailsView(Gtk.Box):
 
     def _fetch_emails_thread(self):
         self.updating = True
-        GLib.idle_add(
-            lambda: (
-                self.update_indicator.set_visible(True)
-            )
-        )
-        
+        GLib.idle_add(lambda: self.update_indicator.set_visible(True))
+
         self.emails = get_all_emails_cached()
         if not self.email_list.get_first_child():
             GLib.idle_add(self._on_emails_fetched_from_cache)
@@ -112,16 +167,16 @@ class EmailsView(Gtk.Box):
 
     def _render_emails(self, emails):
         for email in emails:
-            email_row = makeEmailRow(email)
+            email_row = makeEmailRow(email, self.on_email_clicked)
             self.email_list.append(email_row)
 
     def _on_emails_fetched_from_cache(self):
-        self.spinner.set_hexpand(False)
-        self.spinner.set_vexpand(False)
-        self.spinner_label.set_hexpand(False)
-        self.spinner_label.set_vexpand(False)
-        self.spinner_label.set_visible(False)
-        self.spinner.set_visible(False)
+        # self.spinner.set_hexpand(False)
+        # self.spinner.set_vexpand(False)
+        # self.spinner_label.set_hexpand(False)
+        # self.spinner_label.set_vexpand(False)
+        # self.spinner_label.set_visible(False)
+        # self.spinner.set_visible(False)
         print(f"Loaded {len(self.emails)} email batches from cache")
         if not self.updating:
             for email_batch in self.emails:
@@ -155,7 +210,7 @@ def build_settings_view():
     # box.set_halign(Gtk.Align.START)
     box.set_valign(Gtk.Align.START)
     # box.set_hexpand(True)
-    add_accounts_box = Gtk.Box()
+    add_accounts_box = Gtk.Box(spacing=6)
     add_accounts_button = Gtk.Button()
     add_accounts_button.set_child(
         Adw.ButtonContent(label="Add acount", icon_name="contact-new-symbolic")

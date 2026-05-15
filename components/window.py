@@ -10,6 +10,12 @@ class MainWindow(Adw.ApplicationWindow):
 
         # Header
         header = Adw.HeaderBar()
+
+        # Sidebar toggle button
+        toggle_btn = Gtk.ToggleButton()
+        toggle_btn.set_icon_name("sidebar-show-symbolic")
+        toggle_btn.set_active(True)
+
         menu = Gio.Menu()
         section = Gio.Menu()
         section.append("_Preferences", "app.preferences")
@@ -21,6 +27,7 @@ class MainWindow(Adw.ApplicationWindow):
         header_menu_button.set_icon_name("open-menu-symbolic")
         header_menu_button.set_menu_model(menu)
         header.pack_end(header_menu_button)
+        header.pack_start(toggle_btn)
 
         # Content stack
         self.stack = Gtk.Stack()
@@ -34,7 +41,7 @@ class MainWindow(Adw.ApplicationWindow):
         sidebar_content, sidebar, refresh_button, update_indicator = build_sidebar()
         sidebar.connect("row-selected", self._on_sidebar_selected)
         refresh_button.connect("clicked", self._on_refresh_clicked)
-        
+
         self.update_indicator = update_indicator
         self.emails_view.update_indicator = update_indicator
 
@@ -42,9 +49,15 @@ class MainWindow(Adw.ApplicationWindow):
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(header)
 
-        split = Adw.NavigationSplitView()
+        split = Adw.OverlaySplitView()
         split.set_sidebar(Adw.NavigationPage(title="Blossom", child=sidebar_content))
+        split.set_max_sidebar_width(200)
         split.set_content(Adw.NavigationPage(title="Content", child=self.stack))
+        split.set_show_sidebar(True)
+
+        toggle_btn.connect(
+            "toggled", lambda btn: split.set_show_sidebar(btn.get_active())
+        )
 
         toolbar_view.set_content(split)
         self.set_content(toolbar_view)
