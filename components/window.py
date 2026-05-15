@@ -51,7 +51,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         split = Adw.OverlaySplitView()
         split.set_sidebar(Adw.NavigationPage(title="Blossom", child=sidebar_content))
-        split.set_max_sidebar_width(200)
+        split.set_max_sidebar_width(150)
         split.set_content(Adw.NavigationPage(title="Content", child=self.stack))
         split.set_show_sidebar(True)
 

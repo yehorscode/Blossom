@@ -3,9 +3,6 @@ import threading
 
 import gi
 
-gi.require_version("WebKit", "6.0")
-from gi.repository import Adw, GLib, Gtk, WebKit
-
 from components.view_components.comp_settings import on_add_account_clicked
 from functions.emails import (
     delete_all_credentials,
@@ -15,8 +12,10 @@ from functions.emails import (
     get_all_emails_cached,
     get_credentials,
     init_email_db,
-    save_credentials,
 )
+
+gi.require_version("WebKit", "6.0")
+from gi.repository import Adw, GLib, Gtk, WebKit
 
 
 def makeEmailRow(email, on_clicked_callback=None):
@@ -61,9 +60,12 @@ class EmailsView(Gtk.Box):
     def __init__(self):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         init_email_db()
-        self.main_container = Adw.OverlaySplitView()
-        self.main_container.set_sidebar_position(Gtk.PackType.END)
-        self.main_container.set_show_sidebar(False)
+        self.main_container = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
+        self.main_container.set_wide_handle(True)
+        self.main_container.set_resize_start_child(True)
+        self.main_container.set_resize_end_child(True)
+        self.main_container.set_shrink_start_child(False)
+        self.main_container.set_shrink_end_child(False)
         self.email_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.email_extended = Adw.Bin()
         self.email_extended.set_visible(False)
@@ -77,15 +79,20 @@ class EmailsView(Gtk.Box):
         scroll_window.set_child(self.email_list)
         scroll_window.set_vexpand(True)
         scroll_window.set_hexpand(True)
-        self.main_container.set_content(scroll_window)
-        self.main_container.set_sidebar(self.email_extended)
-
-        self.main_container.set_sidebar_width_fraction(0.8)
+        self.main_container.set_start_child(scroll_window)
+        self.main_container.set_end_child(self.email_extended)
+        self.main_container.connect(
+            "notify::width", self._on_main_container_width_changed
+        )
         self.append(self.main_container)
         self.refetch_emails()
 
+    def _on_main_container_width_changed(self, *_):
+        width = self.main_container.get_width()
+        if width > 0:
+            self.main_container.set_position(width // 4)
+
     def on_email_clicked(self, email):
-        self.main_container.set_show_sidebar(True)
         self.email_extended.set_visible(True)
         self.date_label.set_label(str(email.get("date", "")))
         self.sender_label.set_label(str(email.get("from", "")))
