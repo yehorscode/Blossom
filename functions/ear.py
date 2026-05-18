@@ -53,6 +53,18 @@ def _decode_subject(raw_subject: str | None) -> str:
     return "".join(decoded_subject)
 
 
+def _decode_header_value(raw_value: str | None) -> str:
+    if not raw_value:
+        return ""
+    decoded = []
+    for part, encoding in decode_header(raw_value):
+        if isinstance(part, bytes):
+            decoded.append(part.decode(encoding or "utf-8", errors="replace"))
+        else:
+            decoded.append(part)
+    return "".join(decoded)
+
+
 def _decode_part_payload(part) -> str:
     payload = part.get_payload(decode=True)
     if payload is None:
@@ -71,7 +83,7 @@ def _extract_bodies(msg) -> tuple[str, str]:
     for part in msg.walk():
         content_type = part.get_content_type()
         disposition = (part.get("Content-Disposition") or "").lower()
-        if "attachment" in disposition:
+        if "attachment" in disposition or part.get_filename():
             continue
         if content_type == "text/plain" and not text_plain:
             text_plain = _decode_part_payload(part)
@@ -81,11 +93,36 @@ def _extract_bodies(msg) -> tuple[str, str]:
     return text_plain, text_html
 
 
+def _extract_attachments(msg) -> list[dict[str, object]]:
+    attachments = []
+    for part_index, part in enumerate(msg.walk()):
+        disposition = (part.get("Content-Disposition") or "").lower()
+        filename_header = part.get_filename()
+        if "attachment" not in disposition and not filename_header:
+            continue
+
+        payload = part.get_payload(decode=True)
+        if payload is None:
+            continue
+
+        filename = _decode_header_value(filename_header) or f"attachment-{part_index}"
+        attachments.append(
+            {
+                "part_index": part_index,
+                "filename": filename,
+                "mime_type": part.get_content_type() or "application/octet-stream",
+                "size": len(payload),
+                "content": payload,
+            }
+        )
+    return attachments
+
+
 def fetch_emails(
     account: str,
-    callback: Callable[[list[dict[str, str]]], None] | None = None,
+    callback: Callable[[list[dict[str, object]]], None] | None = None,
     limit: int = 20,
-) -> list[dict[str, str]]:
+) -> list[dict[str, object]]:
     credentials = get_credentials(account)
     if credentials is None:
         raise ValueError("No credentials found for account: " + account)
@@ -108,7 +145,7 @@ def fetch_emails(
             raise RuntimeError("Failed to search mailbox")
 
         uids = data[0].split()[-limit:]
-        emails: list[dict[str, str]] = []
+        emails: list[dict[str, object]] = []
 
         for uid in reversed(uids):
             typ, msg_data = conn.fetch(uid, "(RFC822)")
@@ -121,6 +158,7 @@ def fetch_emails(
             raw_msg = msg_data[0][1]
             msg = email.message_from_bytes(raw_msg)
             body_plain, body_html = _extract_bodies(msg)
+            attachments = _extract_attachments(msg)
 
             emails.append(
                 {
@@ -131,6 +169,7 @@ def fetch_emails(
                     "body_plain": body_plain,
                     "body_html": body_html,
                     "to": msg.get("To", ""),
+                    "attachments": attachments,
                 }
             )
 

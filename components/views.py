@@ -18,6 +18,35 @@ gi.require_version("WebKit", "6.0")
 from gi.repository import Adw, GLib, Gtk, WebKit
 
 
+def makeAttachmentRow(attachment, on_clicked_callback=None):
+    container = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+    inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+    inner.set_margin_top(3)
+    inner.set_margin_bottom(3)
+    inner.set_margin_start(6)
+    inner.set_margin_end(6)
+    icon = Gtk.Image.new_from_icon_name("document-x-generic-symbolic")
+    if attachment["mime_type"][:5] == "image":
+        icon = Gtk.Image.new_from_icon_name("image-x-generic-symbolic")
+    elif attachment["mime_type"][:5] == "video":
+        icon = Gtk.Image.new_from_icon_name("video-x-generic-symbolic")
+    elif attachment["mime_type"][:5] == "audio":
+        icon = Gtk.Image.new_from_icon_name("audio-x-generic-symbolic")
+    elif attachment["mime_type"][:4] == "text":
+        icon = Gtk.Image.new_from_icon_name("text-x-generic-symbolic")
+    elif attachment["mime_type"][:4] == "font":
+        icon = Gtk.Image.new_from_icon_name("font-x-generic-symbolic")
+    elif attachment["mime_type"] == "application/pdf":
+        icon = Gtk.Image.new_from_icon_name("x-office-document-symbolic")
+    title = Gtk.Label(label=attachment["filename"], xalign=0)
+    inner.append(icon)
+    inner.append(title)
+    container.append(inner)
+    title.set_margin_start(6)
+    container.add_css_class("card")
+    return container
+
+
 def makeEmailRow(email, on_clicked_callback=None):
     container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     # container.set_margin_top(4)
@@ -41,12 +70,19 @@ def makeEmailRow(email, on_clicked_callback=None):
     email_from.add_css_class("caption-heading")
     email_date.add_css_class("caption")
     top_em_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+    attachments_container = Gtk.Box(
+        orientation=Gtk.Orientation.HORIZONTAL, spacing=3, halign=Gtk.Align.START
+    )
+    for attachment in email["attachments"]:
+        attachments_container.append(makeAttachmentRow(attachment))
     top_em_box.append(email_from)
     top_em_box.append(email_date)
     inner_content.append(top_em_box)
     inner_content.append(email_title)
     em_box.append(inner_content)
     container.append(em_box)
+    if email["attachments"]:
+        inner_content.append(attachments_container)
     but = Gtk.Button()
     but.set_child(container)
     if on_clicked_callback:
@@ -54,8 +90,6 @@ def makeEmailRow(email, on_clicked_callback=None):
     return but
 
 
-# TODO: add another sidebar to see the actual body of the emails
-# 	- also somehow figure out html rendering in gtk :skulk:
 class EmailsView(Gtk.Box):
     def __init__(self):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
@@ -70,8 +104,11 @@ class EmailsView(Gtk.Box):
         self.email_extended = Adw.Bin()
         self.email_extended.set_visible(False)
         self.emails = []
+        self.selected_email = None
         self.updating = False
         self.update_indicator = None
+        self.style_manager = Adw.StyleManager.get_default()
+        self.style_manager.connect("notify::dark", self._on_dark_mode_changed)
         self.email_details = self.make_email_details()
         self.email_extended.set_child(self.email_details)
 
@@ -93,21 +130,84 @@ class EmailsView(Gtk.Box):
             self.main_container.set_position(width // 4)
 
     def on_email_clicked(self, email):
+        self.selected_email = email
         self.email_extended.set_visible(True)
         self.date_label.set_label(str(email.get("date", "")))
         self.sender_label.set_label(str(email.get("from", "")))
         self.subject_label.set_label(str(email.get("subject", "")))
         self.body_view.load_html(self._build_email_html(email), "about:blank")
 
+    def _on_dark_mode_changed(self, *_):
+        if self.selected_email:
+            self.body_view.load_html(
+                self._build_email_html(self.selected_email), "about:blank"
+            )
+            return
+        self.body_view.load_html(self._build_placeholder_html(), "about:blank")
+
+    def _build_theme_style(self) -> str:
+        if self.style_manager.get_dark():
+            background = "#222226"
+            text = "#fffff"
+            muted = "#9aa0a6"
+            link = "#7bb1ff"
+            color_scheme = "dark"
+        else:
+            background = "#FAFAFB"
+            text = "#1f1f1f"
+            muted = "#5f6368"
+            link = "#1557b0"
+            color_scheme = "light"
+
+        return f"""
+            :root {{
+                color-scheme: {color_scheme};
+            }}
+            html, body {{
+                background-color: {background} !important;
+                color: {text} !important;
+            }}
+            a {{
+                color: {link} !important;
+            }}
+            blockquote {{
+                border-left: 3px solid {muted};
+                margin-left: 0;
+                padding-left: 0.75rem;
+            }}
+            img {{
+                max-width: 100%;
+                height: auto;
+            }}
+        """
+
+    def _inject_theme_style(self, raw_html: str) -> str:
+        style_block = f"<style>{self._build_theme_style()}</style>"
+        html_lower = raw_html.lower()
+        head_close = html_lower.find("</head>")
+        if head_close != -1:
+            return f"{raw_html[:head_close]}{style_block}{raw_html[head_close:]}"
+
+        if "<html" in html_lower:
+            return f"{style_block}{raw_html}"
+
+        return (
+            "<html><head><meta charset='utf-8'>"
+            f"{style_block}</head><body>{raw_html}</body></html>"
+        )
+
     def _build_email_html(self, email: dict) -> str:
         body_plain = email.get("body_plain", "")
         body_html = email.get("body_html", "")
         if body_html:
-            return body_html
+            return self._inject_theme_style(body_html)
         if body_plain:
             escaped_plain = html.escape(body_plain).replace("\n", "<br>")
-            return f"<html><body>{escaped_plain}</body></html>"
-        return "<html><body><i>No message body</i></body></html>"
+            return self._inject_theme_style(escaped_plain)
+        return self._build_placeholder_html()
+
+    def _build_placeholder_html(self) -> str:
+        return self._inject_theme_style("<i>No message body</i>")
 
     def make_email_details(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -138,7 +238,7 @@ class EmailsView(Gtk.Box):
         body_settings.set_enable_javascript(False)
         body_settings.set_auto_load_images(True)
         self.body_view.load_html(
-            "<html><body><i>Select an email</i></body></html>", "about:blank"
+            self._inject_theme_style("<i>Select an email</i>"), "about:blank"
         )
 
         body_scroll = Gtk.ScrolledWindow()

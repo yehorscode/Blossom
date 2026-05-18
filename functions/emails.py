@@ -40,6 +40,22 @@ def init_email_db():
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS email_attachments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account TEXT NOT NULL,
+            uid TEXT NOT NULL,
+            part_index INTEGER NOT NULL,
+            filename TEXT NOT NULL,
+            mime_type TEXT,
+            size INTEGER,
+            content BLOB NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(account, uid, part_index)
+        )
+        """
+    )
     conn.commit()
 
 
@@ -198,29 +214,68 @@ def save_emails(account: str, emails: list[dict]) -> int:
     saved = 0
 
     for email in emails:
-        try:
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO emails (account, uid, from_addr, date, subject, body_plain, body_html, to_addr)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                account,
+                email["uid"],
+                email.get("from", ""),
+                email.get("date", ""),
+                email.get("subject", ""),
+                email.get("body_plain", ""),
+                email.get("body_html", ""),
+                email.get("to", ""),
+            ),
+        )
+        if cursor.rowcount > 0:
+            saved += 1
+
+        for attachment in email.get("attachments", []):
+            content = attachment.get("content", b"")
+            if isinstance(content, memoryview):
+                content = content.tobytes()
+            elif isinstance(content, bytearray):
+                content = bytes(content)
+            elif not isinstance(content, bytes):
+                continue
+
             cursor.execute(
                 """
-                INSERT INTO emails (account, uid, from_addr, date, subject, body_plain, body_html, to_addr)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO email_attachments
+                (account, uid, part_index, filename, mime_type, size, content)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     account,
                     email["uid"],
-                    email.get("from", ""),
-                    email.get("date", ""),
-                    email.get("subject", ""),
-                    email.get("body_plain", ""),
-                    email.get("body_html", ""),
-                    email.get("to", ""),
+                    int(attachment.get("part_index", 0)),
+                    str(attachment.get("filename") or "attachment.bin"),
+                    str(attachment.get("mime_type") or "application/octet-stream"),
+                    int(attachment.get("size") or len(content)),
+                    content,
                 ),
             )
-            saved += 1
-        except sqlite3.IntegrityError:
-            pass
 
     conn.commit()
     return saved
+
+
+def get_email_attachments(account: str, uid: str) -> list[dict]:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, part_index, filename, mime_type, size, content
+        FROM email_attachments
+        WHERE account = ? AND uid = ?
+        ORDER BY part_index ASC
+        """,
+        (account, uid),
+    )
+    return [dict(row) for row in cursor.fetchall()]
 
 
 def get_emails_from_db(account: str | None = None) -> list[dict]:
@@ -243,6 +298,9 @@ def get_emails_from_db(account: str | None = None) -> list[dict]:
         # Map DB column names to UI expected keys
         email_dict["from"] = email_dict.pop("from_addr")
         email_dict["to"] = email_dict.pop("to_addr")
+        email_dict["attachments"] = get_email_attachments(
+            str(email_dict["account"]), str(email_dict["uid"])
+        )
         emails.append(email_dict)
     return emails
 
@@ -256,7 +314,14 @@ def get_email_by_uid(account: str, uid: str) -> dict | None:
         (account, uid),
     )
     row = cursor.fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+
+    email = dict(row)
+    email["from"] = email.pop("from_addr")
+    email["to"] = email.pop("to_addr")
+    email["attachments"] = get_email_attachments(account, uid)
+    return email
 
 
 def fetch_all_emails_and_store() -> int:
