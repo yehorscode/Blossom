@@ -31,8 +31,8 @@ class MainWindow(Adw.ApplicationWindow):
 
         # Content stack
         self.stack = Gtk.Stack()
-        self.stack.set_margin_start(12)
-        self.stack.set_margin_end(12)
+        self.stack.set_margin_start(6)
+        self.stack.set_margin_end(6)
         self.emails_view = build_emails_view()
         self.stack.add_named(self.emails_view, "Emails")
         self.stack.add_named(build_folders_view(), "Folders")
@@ -51,7 +51,6 @@ class MainWindow(Adw.ApplicationWindow):
 
         split = Adw.OverlaySplitView()
         split.set_sidebar(Adw.NavigationPage(title="Blossom", child=sidebar_content))
-        split.set_max_sidebar_width(150)
         split.set_content(Adw.NavigationPage(title="Content", child=self.stack))
         split.set_show_sidebar(True)
 

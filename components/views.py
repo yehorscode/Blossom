@@ -111,6 +111,7 @@ class EmailsView(Gtk.Box):
         self.style_manager.connect("notify::dark", self._on_dark_mode_changed)
         self.email_details = self.make_email_details()
         self.email_extended.set_child(self.email_details)
+        self.clicked_email_id = ""
 
         scroll_window = Gtk.ScrolledWindow()
         scroll_window.set_child(self.email_list)
@@ -130,7 +131,12 @@ class EmailsView(Gtk.Box):
             self.main_container.set_position(width // 4)
 
     def on_email_clicked(self, email):
+        if self.clicked_email_id == email["uid"]:
+            self.email_extended.set_visible(False)
+            self.clicked_email_id = ""
+            return
         self.selected_email = email
+        self.clicked_email_id = email["uid"]
         self.email_extended.set_visible(True)
         self.date_label.set_label(str(email.get("date", "")))
         self.sender_label.set_label(str(email.get("from", "")))
