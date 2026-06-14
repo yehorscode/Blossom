@@ -105,17 +105,29 @@ def _replace_cid_references(
     for attachment in attachments:
         cid = attachment.get("content_id")
         content = attachment.get("content")
-        if not cid or not content:
+        if not isinstance(cid, str) or not isinstance(
+            content, (bytes, bytearray, memoryview)
+        ):
             continue
-        mime = attachment.get("mime_type", "application/octet-stream")
+        mime = attachment.get("mime_type")
+        mime_type = (
+            mime if isinstance(mime, str) and mime else "application/octet-stream"
+        )
+        if isinstance(content, memoryview):
+            content = content.tobytes()
+        elif isinstance(content, bytearray):
+            content = bytes(content)
         b64_content = base64.b64encode(content).decode("utf-8")
-        cid_map[cid] = f"data:{mime};base64,{b64_content}"
+        cid_map[cid] = f"data:{mime_type};base64,{b64_content}"
 
     if not cid_map:
         return body_html
 
-    def _replace(match: re.Match) -> str:
-        return cid_map.get(match.group(1), match.group(0))
+    def _replace(match: re.Match[str]) -> str:
+        content_id = match.group(1)
+        if content_id is None:
+            return match.group(0) or ""
+        return cid_map.get(content_id, match.group(0) or "")
 
     return _CID_PATTERN.sub(_replace, body_html)
 
@@ -136,7 +148,7 @@ class EmailsView(Gtk.Box):
         self.emails = []
         self.selected_email = None
         self.updating = False
-        self.update_indicator = None
+        self.update_indicator: Gtk.Widget | None = None
         self.style_manager = Adw.StyleManager.get_default()
         self.style_manager.connect("notify::dark", self._on_dark_mode_changed)
         self.email_details = self.make_email_details()
@@ -155,19 +167,29 @@ class EmailsView(Gtk.Box):
         self.append(self.main_container)
         self.refetch_emails()
 
-    def _on_main_container_width_changed(self, *_):
+    def _update_pane_position(self):
         width = self.main_container.get_width()
-        if width > 0:
+        if width <= 0:
+            return
+        if self.email_extended.get_visible():
+            # give the detail pane ~1/3 of the width
+            self.main_container.set_position(width * 2 // 3)
+        else:
             self.main_container.set_position(width // 4)
+
+    def _on_main_container_width_changed(self, *_):
+        self._update_pane_position()
 
     def on_email_clicked(self, email):
         if self.clicked_email_id == email["uid"]:
             self.email_extended.set_visible(False)
             self.clicked_email_id = ""
+            self._update_pane_position()
             return
         self.selected_email = email
         self.clicked_email_id = email["uid"]
         self.email_extended.set_visible(True)
+        self._update_pane_position()
         self.date_label.set_label(str(email.get("date", "")))
         self.sender_label.set_label(str(email.get("from", "")))
         self.subject_label.set_label(str(email.get("subject", "")))
@@ -299,8 +321,9 @@ class EmailsView(Gtk.Box):
 
     def _sync_emails_thread(self):
         self.updating = True
-        if self.update_indicator:
-            GLib.idle_add(lambda: self.update_indicator.set_visible(True))
+        update_indicator = self.update_indicator
+        if update_indicator is not None:
+            GLib.idle_add(update_indicator.set_visible, True)
 
         updated_emails = self.emails
         try:

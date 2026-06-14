@@ -99,7 +99,7 @@ def _extract_attachments(msg) -> list[dict[str, object]]:
         disposition = (part.get("Content-Disposition") or "").lower()
         filename_header = part.get_filename()
         content_id = part.get("Content-ID")
-        
+
         if "attachment" not in disposition and not filename_header and not content_id:
             continue
 
@@ -108,7 +108,7 @@ def _extract_attachments(msg) -> list[dict[str, object]]:
             continue
 
         filename = _decode_header_value(filename_header) or f"attachment-{part_index}"
-        
+
         if content_id:
             content_id = content_id.strip("<>").strip()
 
@@ -138,9 +138,14 @@ def fetch_emails(
 
     try:
         try:
-            conn.login(user=credentials["imap_username"], password=credentials["password"])
+            conn.login(
+                user=credentials["imap_username"], password=credentials["password"]
+            )
         except imap.IMAP4.error as e:
-            if "state AUTH" not in str(e) and "already authenticated" not in str(e).lower():
+            if (
+                "state AUTH" not in str(e)
+                and "already authenticated" not in str(e).lower()
+            ):
                 raise
 
         typ, _ = conn.select("INBOX", readonly=True)
