@@ -98,7 +98,9 @@ def _extract_attachments(msg) -> list[dict[str, object]]:
     for part_index, part in enumerate(msg.walk()):
         disposition = (part.get("Content-Disposition") or "").lower()
         filename_header = part.get_filename()
-        if "attachment" not in disposition and not filename_header:
+        content_id = part.get("Content-ID")
+        
+        if "attachment" not in disposition and not filename_header and not content_id:
             continue
 
         payload = part.get_payload(decode=True)
@@ -106,6 +108,10 @@ def _extract_attachments(msg) -> list[dict[str, object]]:
             continue
 
         filename = _decode_header_value(filename_header) or f"attachment-{part_index}"
+        
+        if content_id:
+            content_id = content_id.strip("<>").strip()
+
         attachments.append(
             {
                 "part_index": part_index,
@@ -113,6 +119,7 @@ def _extract_attachments(msg) -> list[dict[str, object]]:
                 "mime_type": part.get_content_type() or "application/octet-stream",
                 "size": len(payload),
                 "content": payload,
+                "content_id": content_id,
             }
         )
     return attachments

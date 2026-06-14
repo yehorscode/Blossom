@@ -33,9 +33,10 @@ def build_sidebar():
     update_indicator.append(update_spinner)
     update_indicator.add_css_class("body")
     # update_indicator.set_margin_top(6)
-    # update_indicator.set_margin_bottom(6)
+    update_indicator.set_margin_bottom(12)
     # update_indicator.set_margin_start(6)
     # update_indicator.set_margin_end(6)
+    update_indicator.set_halign(Gtk.Align.CENTER)
     update_indicator.set_visible(False)
 
     sidebar_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)

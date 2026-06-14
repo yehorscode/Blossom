@@ -8,8 +8,6 @@ from gi.repository import Adw, Gio, Gtk
 
 from components.window import MainWindow
 
-# Note: the comments are fully human generated to speed up the development cuz gtk is painful
-
 
 class BlossomApp(Adw.Application):
     def __init__(self):

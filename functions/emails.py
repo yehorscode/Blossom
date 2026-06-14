@@ -51,11 +51,18 @@ def init_email_db():
             mime_type TEXT,
             size INTEGER,
             content BLOB NOT NULL,
+            content_id TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(account, uid, part_index)
         )
         """
     )
+
+    try:
+        cursor.execute("ALTER TABLE email_attachments ADD COLUMN content_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
 
 
@@ -245,8 +252,8 @@ def save_emails(account: str, emails: list[dict]) -> int:
             cursor.execute(
                 """
                 INSERT OR IGNORE INTO email_attachments
-                (account, uid, part_index, filename, mime_type, size, content)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (account, uid, part_index, filename, mime_type, size, content, content_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     account,
@@ -256,6 +263,7 @@ def save_emails(account: str, emails: list[dict]) -> int:
                     str(attachment.get("mime_type") or "application/octet-stream"),
                     int(attachment.get("size") or len(content)),
                     content,
+                    attachment.get("content_id"),
                 ),
             )
 
@@ -268,7 +276,7 @@ def get_email_attachments(account: str, uid: str) -> list[dict]:
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT id, part_index, filename, mime_type, size, content
+        SELECT id, part_index, filename, mime_type, size, content, content_id
         FROM email_attachments
         WHERE account = ? AND uid = ?
         ORDER BY part_index ASC

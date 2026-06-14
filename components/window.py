@@ -1,4 +1,4 @@
-from gi.repository import Adw, Gio, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from components.sidebar import build_sidebar
 from components.views import build_emails_view, build_folders_view, build_settings_view
@@ -39,6 +39,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.stack.add_named(build_settings_view(), "Settings")
         # Sidebar
         sidebar_content, sidebar, refresh_button, update_indicator = build_sidebar()
+        sidebar_content.set_hexpand(False)
         sidebar.connect("row-selected", self._on_sidebar_selected)
         refresh_button.connect("clicked", self._on_refresh_clicked)
 
@@ -53,6 +54,7 @@ class MainWindow(Adw.ApplicationWindow):
         split.set_sidebar(Adw.NavigationPage(title="Blossom", child=sidebar_content))
         split.set_content(Adw.NavigationPage(title="Content", child=self.stack))
         split.set_show_sidebar(True)
+        split.set_sidebar_width_unit(Adw.LengthUnit.PX)
 
         toggle_btn.connect(
             "toggled", lambda btn: split.set_show_sidebar(btn.get_active())
@@ -62,6 +64,28 @@ class MainWindow(Adw.ApplicationWindow):
         self.set_content(toolbar_view)
         self.set_default_size(900, 600)
 
+        self._split = split
+        self._sidebar_content = sidebar_content
+        self._sidebar_map_id = sidebar_content.connect("map", self._on_sidebar_mapped)
+
+    # vibecoding start
+    # genuienly idk why is auto-setting the width so complicated :hs:
+    def _on_sidebar_mapped(self, widget):
+        self._sync_sidebar_width()
+        if self._sidebar_map_id:
+            widget.disconnect(self._sidebar_map_id)
+            self._sidebar_map_id = None
+
+    def _sync_sidebar_width(self):
+        min_size, nat_size = self._sidebar_content.get_preferred_size()
+        width = max(min_size.width, nat_size.width)
+        if width <= 0:
+            GLib.idle_add(self._sync_sidebar_width)
+            return
+        self._split.set_min_sidebar_width(width)
+        self._split.set_max_sidebar_width(width)
+
+    # vibecoding end
     def _on_sidebar_selected(self, listbox, row):
         if row is None:
             return

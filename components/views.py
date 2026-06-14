@@ -1,4 +1,6 @@
+import base64
 import html
+import re
 import threading
 
 import gi
@@ -88,6 +90,34 @@ def makeEmailRow(email, on_clicked_callback=None):
     if on_clicked_callback:
         but.connect("clicked", lambda btn: on_clicked_callback(email))
     return but
+
+
+_CID_PATTERN = re.compile(r'cid:([^"\'\s)]+)', re.IGNORECASE)
+
+
+def _replace_cid_references(
+    body_html: str, attachments: list[dict[str, object]]
+) -> str:
+    if not body_html or not attachments:
+        return body_html
+
+    cid_map: dict[str, str] = {}
+    for attachment in attachments:
+        cid = attachment.get("content_id")
+        content = attachment.get("content")
+        if not cid or not content:
+            continue
+        mime = attachment.get("mime_type", "application/octet-stream")
+        b64_content = base64.b64encode(content).decode("utf-8")
+        cid_map[cid] = f"data:{mime};base64,{b64_content}"
+
+    if not cid_map:
+        return body_html
+
+    def _replace(match: re.Match) -> str:
+        return cid_map.get(match.group(1), match.group(0))
+
+    return _CID_PATTERN.sub(_replace, body_html)
 
 
 class EmailsView(Gtk.Box):
@@ -206,6 +236,7 @@ class EmailsView(Gtk.Box):
         body_plain = email.get("body_plain", "")
         body_html = email.get("body_html", "")
         if body_html:
+            body_html = _replace_cid_references(body_html, email.get("attachments", []))
             return self._inject_theme_style(body_html)
         if body_plain:
             escaped_plain = html.escape(body_plain).replace("\n", "<br>")
@@ -255,21 +286,28 @@ class EmailsView(Gtk.Box):
         return box
 
     def refetch_emails(self):
-        thread = threading.Thread(target=self._fetch_emails_thread)
+        self._load_emails_from_cache()
+        thread = threading.Thread(target=self._sync_emails_thread)
         thread.daemon = True
         thread.start()
 
-    def _fetch_emails_thread(self):
+    def _load_emails_from_cache(self):
+        self.emails = get_all_emails_cached()
+        self._clear_email_list()
+        for email_batch in self.emails:
+            self._render_emails(email_batch)
+
+    def _sync_emails_thread(self):
         self.updating = True
-        GLib.idle_add(lambda: self.update_indicator.set_visible(True))
+        if self.update_indicator:
+            GLib.idle_add(lambda: self.update_indicator.set_visible(True))
 
-        self.emails = get_all_emails_cached()
-        if not self.email_list.get_first_child():
-            GLib.idle_add(self._on_emails_fetched_from_cache)
-
-        fetch_all_emails_and_store()
-        self.emails = get_all_emails_cached()
-        GLib.idle_add(self._on_emails_updated)
+        updated_emails = self.emails
+        try:
+            fetch_all_emails_and_store()
+            updated_emails = get_all_emails_cached()
+        finally:
+            GLib.idle_add(self._on_emails_updated, updated_emails)
 
     def _clear_email_list(self):
         child = self.email_list.get_first_child()
@@ -283,20 +321,11 @@ class EmailsView(Gtk.Box):
             email_row = makeEmailRow(email, self.on_email_clicked)
             self.email_list.append(email_row)
 
-    def _on_emails_fetched_from_cache(self):
-        # self.spinner.set_hexpand(False)
-        # self.spinner.set_vexpand(False)
-        # self.spinner_label.set_hexpand(False)
-        # self.spinner_label.set_vexpand(False)
-        # self.spinner_label.set_visible(False)
-        # self.spinner.set_visible(False)
-        print(f"Loaded {len(self.emails)} email batches from cache")
-        if not self.updating:
-            for email_batch in self.emails:
-                self._render_emails(email_batch)
-
-    def _on_emails_updated(self):
-        self.update_indicator.set_visible(False)
+    def _on_emails_updated(self, emails=None):
+        if emails is not None:
+            self.emails = emails
+        if self.update_indicator:
+            self.update_indicator.set_visible(False)
         self.updating = False
         self._clear_email_list()
         print(f"Updated with {len(self.emails)} email batches")
