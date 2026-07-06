@@ -1,7 +1,8 @@
 import json
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 import secretstorage
 
@@ -19,6 +20,37 @@ def get_db_connection():
     return _db_conn
 
 
+def _coerce_email_datetime(value) -> datetime | None:
+    raw_value = str(value or "")
+    if not raw_value:
+        return None
+
+    parsed_value = None
+    try:
+        parsed_value = parsedate_to_datetime(raw_value)
+    except TypeError, ValueError, IndexError, OverflowError:
+        parsed_value = None
+
+    if parsed_value is None:
+        try:
+            parsed_value = datetime.fromisoformat(raw_value)
+        except ValueError:
+            return None
+
+    if parsed_value.tzinfo is not None:
+        parsed_value = parsed_value.astimezone(timezone.utc).replace(tzinfo=None)
+
+    return parsed_value
+
+
+def _email_sort_key(email: dict) -> datetime:
+    return (
+        _coerce_email_datetime(email.get("date"))
+        or _coerce_email_datetime(email.get("fetched_at"))
+        or datetime.min
+    )
+
+
 def init_email_db():
     """Initialize email storage schema."""
     conn = get_db_connection()
@@ -30,6 +62,7 @@ def init_email_db():
             account TEXT NOT NULL,
             uid TEXT NOT NULL,
             from_addr TEXT,
+            read BOOL NOT NULL,
             date TEXT,
             subject TEXT,
             body_plain TEXT,
@@ -40,6 +73,11 @@ def init_email_db():
         )
         """
     )
+    try:
+        cursor.execute("ALTER TABLE emails ADD COLUMN read BOOL NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS email_attachments (
@@ -221,15 +259,17 @@ def save_emails(account: str, emails: list[dict]) -> int:
     saved = 0
 
     for email in emails:
+        read_value = bool(email.get("read", False))
         cursor.execute(
             """
-            INSERT OR IGNORE INTO emails (account, uid, from_addr, date, subject, body_plain, body_html, to_addr)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO emails (account, uid, from_addr, read, date, subject, body_plain, body_html, to_addr)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 account,
                 email["uid"],
                 email.get("from", ""),
+                int(read_value),
                 email.get("date", ""),
                 email.get("subject", ""),
                 email.get("body_plain", ""),
@@ -287,7 +327,7 @@ def get_email_attachments(account: str, uid: str) -> list[dict]:
 
 
 def get_emails_from_db(account: str | None = None) -> list[dict]:
-    """Retrieve emails from database. If account is None, return all."""
+    """Retrieve emails from database, newest first."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -306,10 +346,13 @@ def get_emails_from_db(account: str | None = None) -> list[dict]:
         # Map DB column names to UI expected keys
         email_dict["from"] = email_dict.pop("from_addr")
         email_dict["to"] = email_dict.pop("to_addr")
+        email_dict["read"] = bool(email_dict.get("read", 0))
         email_dict["attachments"] = get_email_attachments(
             str(email_dict["account"]), str(email_dict["uid"])
         )
         emails.append(email_dict)
+
+    emails.sort(key=_email_sort_key, reverse=True)
     return emails
 
 
@@ -328,8 +371,20 @@ def get_email_by_uid(account: str, uid: str) -> dict | None:
     email = dict(row)
     email["from"] = email.pop("from_addr")
     email["to"] = email.pop("to_addr")
+    email["read"] = bool(email.get("read", 0))
     email["attachments"] = get_email_attachments(account, uid)
     return email
+
+
+def set_email_read_state(account: str, uid: str, read: bool) -> bool:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE emails SET read = ? WHERE account = ? AND uid = ?",
+        (int(read), account, uid),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
 
 
 def fetch_all_emails_and_store() -> int:
@@ -347,14 +402,14 @@ def fetch_all_emails_and_store() -> int:
     return total_new
 
 
-def get_all_emails_cached() -> list[list[dict]]:
-    """Get all emails from db"""
+def get_all_emails_cached() -> list[dict]:
+    """Get all emails from db, sorted newest first across accounts."""
     accounts = get_all_accounts()
     all_emails = []
     for account in accounts:
-        emails = get_emails_from_db(account)
-        if emails:
-            all_emails.append(emails)
+        all_emails.extend(get_emails_from_db(account))
+
+    all_emails.sort(key=_email_sort_key, reverse=True)
     return all_emails
 
 

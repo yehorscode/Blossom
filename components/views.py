@@ -16,6 +16,7 @@ from functions.emails import (
     get_all_emails_cached,
     get_credentials,
     init_email_db,
+    set_email_read_state,
 )
 from functions.mouth import send_email
 
@@ -107,8 +108,8 @@ def _format_email_date(email: dict) -> str:
         return f"No date. Arrived at {fetched_at}" if fetched_at else "No date"
 
     try:
-        return parsedate_to_datetime(raw_date).strftime("%H:%M %d-%m-%Y ")
-    except TypeError, ValueError, IndexError, OverflowError:
+        return f"Got at {parsedate_to_datetime(raw_date).strftime('%H:%M %d-%m-%Y ')}"
+    except (TypeError, ValueError, IndexError, OverflowError):
         fetched_at = str(email.get("fetched_at", "") or "")
         return f"No date. Arrived at {fetched_at}" if fetched_at else raw_date
 
@@ -128,7 +129,11 @@ def makeEmailRow(email, on_clicked_callback=None):
     inner_content.set_margin_start(6)
     inner_content.set_margin_end(6)
 
-    email_title = Gtk.Label(label=email["subject"], xalign=0)
+    is_read = bool(email.get("read", False))
+    title = str(email.get("subject", "") or "(No subject)")
+    if not is_read:
+        title = f"● {title}"
+    email_title = Gtk.Label(label=title, xalign=0)
     email_title.add_css_class("heading")
     email_from = Gtk.Label(label=email["from"], xalign=0)
     email_from.set_hexpand(True)
@@ -255,6 +260,9 @@ class EmailsView(Gtk.Box):
         self.clicked_email_id = email["uid"]
         self.email_extended.set_visible(True)
         self._update_pane_position()
+        if not bool(email.get("read", False)):
+            self._sync_email_read_state(email, True)
+        self._update_read_toggle_button()
         self.date_label.set_label(_format_email_date(email))
         self.sender_label.set_label(str(email.get("from", "")))
         self.subject_label.set_label(str(email.get("subject", "")))
@@ -269,6 +277,44 @@ class EmailsView(Gtk.Box):
             self.expanded_attachment_box.append(
                 makeAttachmentRow(attachment, inContent=True)
             )
+
+    def _sync_email_read_state(self, email: dict, read: bool) -> None:
+        account = str(email.get("account", ""))
+        uid = str(email.get("uid", ""))
+        if not account or not uid:
+            return
+        if not set_email_read_state(account, uid, read):
+            return
+
+        for cached_email in self.emails:
+            if (
+                str(cached_email.get("account", "")) == account
+                and str(cached_email.get("uid", "")) == uid
+            ):
+                cached_email["read"] = read
+
+        email["read"] = read
+        if self.selected_email is not None:
+            self.selected_email["read"] = read
+        self._clear_email_list()
+        self._render_emails(self.emails)
+
+    def _update_read_toggle_button(self) -> None:
+        if self.selected_email is None:
+            self.read_toggle_button.set_visible(False)
+            return
+        is_read = bool(self.selected_email.get("read", False))
+        self.read_toggle_button.set_visible(True)
+        self.read_toggle_button.set_label(
+            "Mark as unread" if is_read else "Mark as read"
+        )
+
+    def _on_toggle_read_clicked(self, _button) -> None:
+        if self.selected_email is None:
+            return
+        read_now = bool(self.selected_email.get("read", False))
+        self._sync_email_read_state(self.selected_email, not read_now)
+        self._update_read_toggle_button()
 
     def _on_dark_mode_changed(self, *_):
         if self.selected_email:
@@ -372,9 +418,14 @@ class EmailsView(Gtk.Box):
         self.subject_label.set_xalign(0)
         self.subject_label.add_css_class("heading")
         self.sender_label_copy.connect("clicked", copy_sender)
+        self.read_toggle_button = Gtk.Button(label="Mark as read")
+        self.read_toggle_button.set_halign(Gtk.Align.START)
+        self.read_toggle_button.connect("clicked", self._on_toggle_read_clicked)
+        self.read_toggle_button.set_visible(False)
 
         top_box.append(self.date_label)
         top_box.append(self.sender_label_box)
+        top_box.append(self.read_toggle_button)
         box.append(top_box)
         box.append(self.subject_label)
 
@@ -407,8 +458,7 @@ class EmailsView(Gtk.Box):
     def _load_emails_from_cache(self):
         self.emails = get_all_emails_cached()
         self._clear_email_list()
-        for email_batch in self.emails:
-            self._render_emails(email_batch)
+        self._render_emails(self.emails)
 
     def _sync_emails_thread(self):
         self.updating = True
@@ -442,9 +492,8 @@ class EmailsView(Gtk.Box):
             self.update_indicator.set_visible(False)
         self.updating = False
         self._clear_email_list()
-        print(f"Updated with {len(self.emails)} email batches")
-        for email_batch in self.emails:
-            self._render_emails(email_batch)
+        print(f"Updated with {len(self.emails)} emails")
+        self._render_emails(self.emails)
 
 
 def build_send_view() -> Gtk.Box:
