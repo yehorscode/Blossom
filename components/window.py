@@ -38,15 +38,17 @@ class MainWindow(Adw.ApplicationWindow):
         self.stack = Gtk.Stack()
         self.stack.set_margin_start(6)
         self.stack.set_margin_end(6)
-        self.emails_view = build_emails_view()
+        self.send_view = build_send_view()
+        self.emails_view = build_emails_view(self._open_reply_compose)
         self.stack.add_named(self.emails_view, "Emails")
         self.stack.add_named(build_folders_view(), "Folders")
         self.stack.add_named(build_settings_view(), "Settings")
-        self.stack.add_named(build_send_view(), "Send")
+        self.stack.add_named(self.send_view, "Send")
         # Sidebar
         sidebar_content, sidebar, refresh_button, update_indicator = build_sidebar()
+        self.sidebar = sidebar
         sidebar_content.set_hexpand(False)
-        sidebar.connect("row-selected", self._on_sidebar_selected)
+        self.sidebar.connect("row-selected", self._on_sidebar_selected)
         refresh_button.connect("clicked", self._on_refresh_clicked)
 
         self.update_indicator = update_indicator
@@ -102,3 +104,11 @@ class MainWindow(Adw.ApplicationWindow):
         if hasattr(self.emails_view, "refetch_emails"):
             self.emails_view.refetch_emails()
             print("Emails refreshed")
+
+    def _open_reply_compose(self, source_email: dict) -> None:
+        if hasattr(self.send_view, "prefill_reply"):
+            self.send_view.prefill_reply(source_email)
+        self.stack.set_visible_child_name("Send")
+        send_row = self.sidebar.get_row_at_index(3)
+        if send_row is not None:
+            self.sidebar.select_row(send_row)
