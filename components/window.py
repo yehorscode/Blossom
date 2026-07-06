@@ -1,7 +1,12 @@
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from components.sidebar import build_sidebar
-from components.views import build_emails_view, build_folders_view, build_settings_view
+from components.views import (
+    build_emails_view,
+    build_folders_view,
+    build_send_view,
+    build_settings_view,
+)
 
 
 class MainWindow(Adw.ApplicationWindow):
@@ -37,6 +42,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.stack.add_named(self.emails_view, "Emails")
         self.stack.add_named(build_folders_view(), "Folders")
         self.stack.add_named(build_settings_view(), "Settings")
+        self.stack.add_named(build_send_view(), "Send")
         # Sidebar
         sidebar_content, sidebar, refresh_button, update_indicator = build_sidebar()
         sidebar_content.set_hexpand(False)
@@ -89,7 +95,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_sidebar_selected(self, listbox, row):
         if row is None:
             return
-        page_names = ["Emails", "Folders", "Settings"]
+        page_names = ["Emails", "Folders", "Settings", "Send"]
         self.stack.set_visible_child_name(page_names[row.get_index()])
 
     def _on_refresh_clicked(self, button):

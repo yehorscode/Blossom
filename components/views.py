@@ -2,6 +2,8 @@ import base64
 import html
 import re
 import threading
+from email.utils import parsedate_to_datetime
+from pathlib import Path
 
 import gi
 
@@ -15,13 +17,50 @@ from functions.emails import (
     get_credentials,
     init_email_db,
 )
+from functions.mouth import send_email
 
 gi.require_version("WebKit", "6.0")
-from gi.repository import Adw, GLib, Gtk, WebKit
+gi.require_version("GtkSource", "5")
+from gi.repository import Adw, GLib, Gtk, GtkSource, WebKit
 
 
-def makeAttachmentRow(attachment, on_clicked_callback=None):
+def _download_attachment(button, attachment) -> None:
+    parent = button.get_root()
+    if not isinstance(parent, Gtk.Window):
+        parent = None
+
+    chooser = Gtk.FileChooserNative.new(
+        "Select download folder",
+        parent,
+        Gtk.FileChooserAction.SELECT_FOLDER,
+        "Select",
+        "Cancel",
+    )
+
+    def _on_response(dialog, response):
+        if response == Gtk.ResponseType.ACCEPT:
+            folder = dialog.get_file()
+            path = folder.get_path() if folder else None
+            if path:
+                content = attachment["content"]
+                if isinstance(content, memoryview):
+                    content = content.tobytes()
+                elif isinstance(content, bytearray):
+                    content = bytes(content)
+                filename = Path(attachment["filename"]).name or "attachment.bin"
+                Path(path, filename).write_bytes(content)
+        dialog.destroy()
+
+    chooser.connect("response", _on_response)
+    chooser.show()
+
+
+def makeAttachmentRow(attachment, on_clicked_callback=None, inContent=False):
     container = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+    labelText = ""
+    button = Gtk.Button()
+    if inContent:
+        button.set_child(container)
     inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
     inner.set_margin_top(3)
     inner.set_margin_bottom(3)
@@ -40,13 +79,38 @@ def makeAttachmentRow(attachment, on_clicked_callback=None):
         icon = Gtk.Image.new_from_icon_name("font-x-generic-symbolic")
     elif attachment["mime_type"] == "application/pdf":
         icon = Gtk.Image.new_from_icon_name("x-office-document-symbolic")
-    title = Gtk.Label(label=attachment["filename"], xalign=0)
+    if inContent:
+        labelText = attachment["filename"]
+    else:
+        labelText = attachment["filename"]
     inner.append(icon)
-    inner.append(title)
     container.append(inner)
+    title = Gtk.Label(label=labelText, xalign=0)
     title.set_margin_start(6)
-    container.add_css_class("card")
-    return container
+    inner.append(title)
+    download_indicator = Gtk.Image.new_from_icon_name("document-save-symbolic")
+    download_indicator.set_margin_start(6)
+    if inContent:
+        inner.append(download_indicator)
+        button.connect("clicked", lambda btn: _download_attachment(btn, attachment))
+    if not inContent:
+        container.add_css_class("card")
+        return container
+    else:
+        return button
+
+
+def _format_email_date(email: dict) -> str:
+    raw_date = str(email.get("date", "") or "")
+    if not raw_date:
+        fetched_at = str(email.get("fetched_at", "") or "")
+        return f"No date. Arrived at {fetched_at}" if fetched_at else "No date"
+
+    try:
+        return parsedate_to_datetime(raw_date).strftime("%H:%M %d-%m-%Y ")
+    except TypeError, ValueError, IndexError, OverflowError:
+        fetched_at = str(email.get("fetched_at", "") or "")
+        return f"No date. Arrived at {fetched_at}" if fetched_at else raw_date
 
 
 def makeEmailRow(email, on_clicked_callback=None):
@@ -68,7 +132,8 @@ def makeEmailRow(email, on_clicked_callback=None):
     email_title.add_css_class("heading")
     email_from = Gtk.Label(label=email["from"], xalign=0)
     email_from.set_hexpand(True)
-    email_date = Gtk.Label(label=email["date"], xalign=0)
+    email_date = Gtk.Label(xalign=0)
+    email_date.set_label(_format_email_date(email))
     email_from.add_css_class("caption-heading")
     email_date.add_css_class("caption")
     top_em_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
@@ -172,7 +237,6 @@ class EmailsView(Gtk.Box):
         if width <= 0:
             return
         if self.email_extended.get_visible():
-            # give the detail pane ~1/3 of the width
             self.main_container.set_position(width * 2 // 3)
         else:
             self.main_container.set_position(width // 4)
@@ -181,6 +245,7 @@ class EmailsView(Gtk.Box):
         self._update_pane_position()
 
     def on_email_clicked(self, email):
+
         if self.clicked_email_id == email["uid"]:
             self.email_extended.set_visible(False)
             self.clicked_email_id = ""
@@ -190,10 +255,20 @@ class EmailsView(Gtk.Box):
         self.clicked_email_id = email["uid"]
         self.email_extended.set_visible(True)
         self._update_pane_position()
-        self.date_label.set_label(str(email.get("date", "")))
+        self.date_label.set_label(_format_email_date(email))
         self.sender_label.set_label(str(email.get("from", "")))
         self.subject_label.set_label(str(email.get("subject", "")))
         self.body_view.load_html(self._build_email_html(email), "about:blank")
+
+        child = self.expanded_attachment_box.get_first_child()
+        while child:
+            next_child = child.get_next_sibling()
+            self.expanded_attachment_box.remove(child)
+            child = next_child
+        for attachment in email["attachments"]:
+            self.expanded_attachment_box.append(
+                makeAttachmentRow(attachment, inContent=True)
+            )
 
     def _on_dark_mode_changed(self, *_):
         if self.selected_email:
@@ -269,6 +344,12 @@ class EmailsView(Gtk.Box):
         return self._inject_theme_style("<i>No message body</i>")
 
     def make_email_details(self):
+        def copy_sender(_button):
+            import pyperclip
+
+            if self.selected_email:
+                pyperclip.copy(str(self.selected_email.get("from", "")))
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_margin_top(12)
         box.set_margin_bottom(12)
@@ -278,15 +359,22 @@ class EmailsView(Gtk.Box):
         self.date_label = Gtk.Label(label="")
         self.date_label.set_xalign(0)
         self.date_label.add_css_class("caption")
+        self.sender_label_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=6
+        )
+        self.sender_label_copy = Gtk.Button(icon_name="edit-copy-symbolic")
         self.sender_label = Gtk.Label(label="")
         self.sender_label.set_xalign(0)
         self.sender_label.add_css_class("caption")
+        self.sender_label_box.append(self.sender_label)
+        self.sender_label_box.append(self.sender_label_copy)
         self.subject_label = Gtk.Label(label="")
         self.subject_label.set_xalign(0)
         self.subject_label.add_css_class("heading")
+        self.sender_label_copy.connect("clicked", copy_sender)
 
         top_box.append(self.date_label)
-        top_box.append(self.sender_label)
+        top_box.append(self.sender_label_box)
         box.append(top_box)
         box.append(self.subject_label)
 
@@ -299,12 +387,15 @@ class EmailsView(Gtk.Box):
         self.body_view.load_html(
             self._inject_theme_style("<i>Select an email</i>"), "about:blank"
         )
-
+        bottom_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.expanded_attachment_box = Gtk.Box(spacing=6)
+        bottom_box.append(self.expanded_attachment_box)
         body_scroll = Gtk.ScrolledWindow()
         body_scroll.set_hexpand(True)
         body_scroll.set_vexpand(True)
         body_scroll.set_child(self.body_view)
         box.append(body_scroll)
+        box.append(bottom_box)
         return box
 
     def refetch_emails(self):
@@ -356,7 +447,154 @@ class EmailsView(Gtk.Box):
             self._render_emails(email_batch)
 
 
-def build_emails_view():
+def build_send_view() -> Gtk.Box:
+    def send(button):
+        selected_sender_item = email_sender_form.get_selected_item()
+        if selected_sender_item is None:
+            alert = Adw.AlertDialog()
+            alert.set_heading("No sender selected")
+            alert.set_body("Select a sender account before sending an email.")
+            alert.add_response("ok", "OK")
+            alert.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+            alert.present()
+            return
+
+        sender = selected_sender_item.get_string()
+        to_addrs = [
+            addr.strip()
+            for addr in email_receivers_form_to.get_text().split(",")
+            if addr.strip()
+        ]
+        cc_addrs = [
+            addr.strip()
+            for addr in email_receivers_form_cc.get_text().split(",")
+            if addr.strip()
+        ]
+        bcc_addrs = [
+            addr.strip()
+            for addr in email_receivers_form_bcc.get_text().split(",")
+            if addr.strip()
+        ]
+        recipients = to_addrs + cc_addrs + bcc_addrs
+        if not recipients:
+            alert = Adw.AlertDialog()
+            alert.set_heading("No recipients")
+            alert.set_body("Add at least one recipient before sending an email.")
+            alert.add_response("ok", "OK")
+            alert.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+            alert.present()
+            return
+
+        msg = email.message.EmailMessage()
+        if to_addrs:
+            msg["to"] = to_addrs
+        if cc_addrs:
+            msg["cc"] = cc_addrs
+        msg["from"] = sender
+        msg["subject"] = email_title.get_text()
+        msg.set_content(
+            buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+        )
+        print("Sending email:")
+        print(msg)
+        sent, send_error = send_email(msg, sender, recipients)
+
+        alert = Adw.AlertDialog()
+        if sent:
+            alert.set_heading("Email sent")
+            alert.set_body("Your email was sent successfully.")
+        else:
+            alert.set_heading("Send failed")
+            alert.set_body(send_error or "Unknown SMTP error while sending the email.")
+        alert.add_response("ok", "OK")
+        alert.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+        alert.present()
+
+    import email.message
+
+    main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+
+    top_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+    # Sender / recipients
+    metadata_group = Adw.PreferencesGroup()
+
+    email_sender_form = Adw.ComboRow(title="From:")
+    email_list = Gtk.StringList()
+    for acc in get_all_accounts():
+        email_list.append(acc)
+    email_sender_form.set_model(email_list)
+
+    email_receivers_form_to = Adw.EntryRow(title="To: (separate receivers with ,)")
+    email_receivers_form_cc = Adw.EntryRow(title="CC:")
+    email_receivers_form_bcc = Adw.EntryRow(title="BCC:")
+
+    metadata_group.add(email_sender_form)
+    metadata_group.add(email_receivers_form_to)
+    metadata_group.add(email_receivers_form_cc)
+    metadata_group.add(email_receivers_form_bcc)
+
+    top_box.append(metadata_group)
+
+    top_box_right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    send_button = Gtk.Button(icon_name="mail-send-symbolic")
+
+    send_button.connect("clicked", send)
+    top_box_right.append(send_button)
+
+    metadata_group.set_hexpand(True)
+    metadata_group.set_margin_end(8)
+
+    top_box.append(top_box_right)
+    main_box.append(top_box)
+
+    # Subject
+    title_group = Adw.PreferencesGroup()
+    email_title = Adw.EntryRow(title="Title:")
+    title_group.add(email_title)
+    main_box.append(title_group)
+
+    # Body editor
+    GtkSource.init()
+    buffer = GtkSource.Buffer()
+
+    lang = GtkSource.LanguageManager.get_default().get_language("markdown")
+    buffer.set_language(lang)
+
+    style_manager = Adw.StyleManager.get_default()
+    scheme_manager = GtkSource.StyleSchemeManager.get_default()
+
+    def apply_scheme(*_):
+        name = "Adwaita-dark" if style_manager.get_dark() else "Adwaita"
+        scheme = scheme_manager.get_scheme(name)
+        if scheme:
+            buffer.set_style_scheme(scheme)
+
+    apply_scheme()
+    style_manager.connect("notify::dark", apply_scheme)
+
+    editor = GtkSource.View.new_with_buffer(buffer)
+    editor.set_wrap_mode(Gtk.WrapMode.WORD)
+    editor.set_top_margin(8)
+    editor.set_left_margin(8)
+    editor.set_right_margin(8)
+    editor.set_bottom_margin(8)
+    editor.set_size_request(-1, 300)
+
+    scrolled = Gtk.ScrolledWindow()
+    scrolled.set_child(editor)
+    scrolled.set_vexpand(True)
+    scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+    body_group = Adw.PreferencesGroup()
+    # body_group.set_title("Message")
+    body_group.add(scrolled)
+
+    main_box.append(body_group)
+
+    return main_box
+
+
+def build_emails_view() -> Gtk.Box:
     return EmailsView()
 
 
@@ -378,7 +616,7 @@ def build_settings_view():
     add_accounts_box = Gtk.Box(spacing=6)
     add_accounts_button = Gtk.Button()
     add_accounts_button.set_child(
-        Adw.ButtonContent(label="Add acount", icon_name="contact-new-symbolic")
+        Adw.ButtonContent(label="Add account", icon_name="contact-new-symbolic")
     )
     remove_all_button = Gtk.Button()
     remove_all_button.set_child(

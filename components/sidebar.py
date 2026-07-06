@@ -20,6 +20,7 @@ def build_sidebar():
     sidebar.append(make_sidebar_item("mail-unread-symbolic"))
     sidebar.append(make_sidebar_item("folder-visiting-symbolic"))
     sidebar.append(make_sidebar_item("preferences-system-symbolic"))
+    sidebar.append(make_sidebar_item("mail-send-symbolic"))
 
     refresh_button = Gtk.Button()
     refresh_button.set_icon_name("view-refresh-symbolic")
