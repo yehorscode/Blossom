@@ -11,6 +11,7 @@ dependencies = [
     "pygobject-stubs>=2.17.0",
     "pyperclip>=1.11.0",
     "secretstorage>=3.5.0",
+    "appimage>=2.0.0",
 ]
 
 [dependency-groups]
@@ -18,5 +19,20 @@ dev = [
     "pygobject-stubs>=2.17.0",
 ]
 
+[project.scripts]
+blossom = "blossom.main:main"
+
 [project.gui-scripts]
 blossom = "blossom.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+[tool.hatch.build.targets.wheel]
+packages = ["src/blossom"]
+
+[tool.appimage.build]
+app = "blossom"	
+entry_point = "blossom.main:main"
+python = "3.14"
+icon = "src/blossom/assets/blossom.svg"

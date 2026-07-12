@@ -7,13 +7,13 @@ from pathlib import Path
 
 import gi
 
-from functions.emails import (
+from blossom.functions.emails import (
     fetch_all_emails_and_store,
     get_all_emails_cached,
     init_email_db,
     set_email_read_state,
 )
-from functions.ear import delete_emails_batch, delete_emails_from_db
+from blossom.functions.ear import delete_emails_batch, delete_emails_from_db
 
 gi.require_version("WebKit", "6.0")
 gi.require_version("GtkSource", "5")

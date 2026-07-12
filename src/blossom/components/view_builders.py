@@ -1,9 +1,9 @@
 import gi
 
-from components.view_components.comp_settings import on_add_account_clicked
-from components.views.emails_view.emails_view import EmailsView
-from components.views.send_view.send_view import SendView
-from functions.emails import (
+from blossom.components.view_components.comp_settings import on_add_account_clicked
+from blossom.components.views.emails_view.emails_view import EmailsView
+from blossom.components.views.send_view.send_view import SendView
+from blossom.functions.emails import (
     delete_all_credentials,
     delete_credential,
     get_all_accounts,

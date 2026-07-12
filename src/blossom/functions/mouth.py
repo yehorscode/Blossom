@@ -4,8 +4,8 @@ import smtplib as smtp
 import socket
 from datetime import datetime, timezone
 
-from functions.emails import get_all_accounts, get_credentials
-from functions.logging import error
+from blossom.functions.emails import get_all_accounts, get_credentials
+from blossom.functions.logging import error
 
 smtp_connections: dict[str, smtp.SMTP_SSL] = {}
 

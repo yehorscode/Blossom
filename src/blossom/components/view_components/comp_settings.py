@@ -1,6 +1,6 @@
 from gi.repository import Adw, Gtk
 
-from functions.emails import save_credentials
+from blossom.functions.emails import save_credentials
 
 
 def on_add_account_clicked(button, refresh_account_list):

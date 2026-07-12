@@ -6,8 +6,11 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, Gtk
 
-from components.window import MainWindow
+from blossom.components.window import MainWindow
 
+def main():
+    app = BlossomApp()
+    app.run(sys.argv)
 
 class BlossomApp(Adw.Application):
     def __init__(self):
@@ -39,7 +42,7 @@ class BlossomApp(Adw.Application):
         dialog = Adw.AboutDialog(
             application_name="Blossom",
             application_icon="mail-unread-symbolic",
-            version="0.1.0",
+            version="1.0.0",
         )
         dialog.present(self.win)
 
@@ -48,5 +51,4 @@ class BlossomApp(Adw.Application):
 
 
 if __name__ == "__main__":
-    app = BlossomApp()
-    app.run(sys.argv)
+    main()

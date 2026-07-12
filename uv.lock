@@ -3,10 +3,20 @@ revision = 3
 requires-python = ">=3.14"
 
 [[package]]
+name = "appimage"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/45/1a/ce4d4918b85bf7fa0da7093c65be1badd4d9e86f3eab9190ff50cc42dd62/appimage-2.0.0.tar.gz", hash = "sha256:053849a79f5376022e48f1b2f4ba9fd595660182486fa4f9b0c3f1f8cb49f651", size = 53955, upload-time = "2026-05-10T18:32:17.605Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/12/fc/2055c4f53f508fe63a8fadd58e393c5c02c51e620805b7d0c724eb71ac21/appimage-2.0.0-py3-none-any.whl", hash = "sha256:18df34f9f5a01c4cacf97254f28531c443a48e54c4be4ce44fa1dfea52bd63a2", size = 52167, upload-time = "2026-05-10T18:32:16.419Z" },
+]
+
+[[package]]
 name = "blossom"
 version = "1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
+    { name = "appimage" },
     { name = "colorama" },
     { name = "pycairo" },
     { name = "pygobject" },
@@ -22,6 +32,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "appimage", specifier = ">=2.0.0" },
     { name = "colorama", specifier = ">=0.4.6" },
     { name = "pycairo", specifier = ">=1.29.0" },
     { name = "pygobject", specifier = ">=3.56.2" },

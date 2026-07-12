@@ -3,7 +3,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-
+from pathlib import Path
 import secretstorage
 
 SCHEMA_NAME = "com.yehors.Blossom"
@@ -11,11 +11,28 @@ SCHEMA_NAME = "com.yehors.Blossom"
 _conn = None
 _db_conn = None
 
+def get_data_dir():
+    """~/.local/share/com.yehors.Blossom"""
+    data_home = os.getenv("XDG_DATA_HOME",
+                         os.path.join(os.path.expanduser("~"), ".local", "share"))
+    path = Path(data_home) / "com.yehors.Blossom"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def get_config_dir():
+    """~/.config/com.yehors.Blossom"""
+    config_home = os.getenv("XDG_CONFIG_HOME",
+                           os.path.join(os.path.expanduser("~"), ".config"))
+    path = Path(config_home) / "com.yehors.Blossom"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 def get_db_connection():
     global _db_conn
     if _db_conn is None:
-        _db_conn = sqlite3.connect("emails.db", check_same_thread=False)
+        db_path = get_data_dir() / "emails.db"
+        _db_conn = sqlite3.connect(str(db_path), check_same_thread=False)
         _db_conn.row_factory = sqlite3.Row
     return _db_conn
 
@@ -122,8 +139,7 @@ def _search_attrs(email: str) -> dict:
 def _password_attrs(email: str) -> dict:
     return {"schema": SCHEMA_NAME, "email": email, "kind": "password"}
 
-
-CONFIG_PATH = "configs/accounts.json"
+CONFIG_PATH = get_config_dir() / "accounts.json"
 
 
 def save_credentials(
@@ -139,7 +155,7 @@ def save_credentials(
     smtp_security,
     smtp_auth,
 ):
-    if os.path.exists(CONFIG_PATH):
+    if CONFIG_PATH.exists():
         with open(CONFIG_PATH, "r") as f:
             try:
                 accounts = json.load(f)
@@ -160,9 +176,8 @@ def save_credentials(
         "smtp_auth": smtp_auth,
     }
 
-    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     with open(CONFIG_PATH, "w") as f:
-        json.dump(accounts, f, indent=2)
+            json.dump(accounts, f, indent=2)
 
     for item in list(get_collection().search_items(_search_attrs(email))):
         item.delete()
@@ -185,9 +200,8 @@ def iter_items(collection):
         except Exception:
             continue
 
-
 def get_all_accounts() -> dict:
-    if not os.path.exists(CONFIG_PATH):
+    if not CONFIG_PATH.exists():
         return {}
     with open(CONFIG_PATH, "r") as f:
         return json.load(f)
@@ -389,7 +403,7 @@ def set_email_read_state(account: str, uid: str, read: bool) -> bool:
 
 def fetch_all_emails_and_store() -> int:
     """Fetch and save emails (all)"""
-    from functions.ear import fetch_emails
+    from blossom.functions.ear import fetch_emails
 
     total_new = 0
     for account in get_all_accounts():
@@ -411,22 +425,3 @@ def get_all_emails_cached() -> list[dict]:
 
     all_emails.sort(key=_email_sort_key, reverse=True)
     return all_emails
-
-
-# print(
-#     save_credentials(
-#         email="test@example.com",
-#         password="testpassword",
-#         imap_server="imap.example.com",
-#         imap_port="993",
-#         imap_security="SSL",
-#         imap_username="test@example.com",
-#         imap_auth="password",
-#         smtp_server="smtp.example.com",
-#         smtp_port="587",
-#         smtp_security="TLS",
-#         smtp_auth="password",
-#     )
-# )
-# print(get_all_accounts())
-# delete_all_credentials(sure=True)

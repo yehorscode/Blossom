@@ -4,11 +4,11 @@ import socket
 from email.header import decode_header
 from typing import Callable
 
-from functions.emails import (
+from blossom.functions.emails import (
     get_all_accounts,
     get_credentials,
 )
-from functions.logging import error
+from blossom.functions.logging import error
 
 def delete_emails_from_db(account: str, uids: list[str]) -> bool:
     """

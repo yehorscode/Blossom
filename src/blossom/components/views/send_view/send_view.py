@@ -3,10 +3,10 @@ from email.utils import parseaddr
 
 import gi
 
-from functions.emails import (
+from blossom.functions.emails import (
     get_all_accounts,
 )
-from functions.mouth import send_email
+from blossom.functions.mouth import send_email
 
 gi.require_version("WebKit", "6.0")
 gi.require_version("GtkSource", "5")
