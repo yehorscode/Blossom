@@ -1,7 +1,7 @@
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from components.sidebar import build_sidebar
-from components.views import (
+from components.view_builders import (
     build_emails_view,
     build_folders_view,
     build_send_view,
