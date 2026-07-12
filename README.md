@@ -13,3 +13,11 @@ App built in python, on top of uv.
   - No support.
 - Mac Os
   - Untested. Not sure if it supports AppImage
+
+### Developing
+You need [https://github.com/astral-sh/uv](uv) to properly run the app locally.
+Once cloned, you need to run the `blossom` module with 
+```bash
+uv run blossom
+```
+Once you've ran that it should be running fine!

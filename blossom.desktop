@@ -3,5 +3,6 @@ Type=Application
 Name=Blossom
 Comment=Primitive email client that supports receiving and sending emails built on Adw and Gtk
 Icon=blossom
-Categories=Network
+Categories=Network;Email
 Terminal=false
+Version=1.0
