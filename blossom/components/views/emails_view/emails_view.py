@@ -13,6 +13,7 @@ from functions.emails import (
     init_email_db,
     set_email_read_state,
 )
+from functions.ear import delete_emails_batch, delete_emails_from_db
 
 gi.require_version("WebKit", "6.0")
 gi.require_version("GtkSource", "5")
@@ -59,13 +60,27 @@ def _replace_cid_references(
 _CID_PATTERN = re.compile(r'cid:([^"\'\s)]+)', re.IGNORECASE)
 
 
-def makeEmailRow(email, on_clicked_callback=None):
-    container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-    # container.set_margin_top(4)
-    # container.set_margin_bottom(4)
-    # container.set_margin_start(4)
-    # container.set_margin_end(4)
+def makeEmailRow(email, on_clicked_callback=None, is_selected=False, select_mode=False, on_selection_changed=None):
+    """Create an email row with optional checkbox for selection when in select mode."""
+    container = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    container.set_margin_start(6)
+    container.set_margin_end(6)
 
+    # Checkbox only shown in select mode
+    checkbox = Gtk.CheckButton()
+    checkbox.set_active(is_selected)
+    checkbox.set_valign(Gtk.Align.CENTER)
+    checkbox.set_visible(select_mode)
+
+    def on_checkbox_toggled(cb):
+        email["_selected"] = cb.get_active()
+        if on_selection_changed:
+            on_selection_changed()
+
+    checkbox.connect("toggled", on_checkbox_toggled)
+    container.append(checkbox)
+
+    # Email content box
     em_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
 
     inner_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -73,7 +88,7 @@ def makeEmailRow(email, on_clicked_callback=None):
     inner_content.set_margin_bottom(6)
     inner_content.set_margin_start(6)
     inner_content.set_margin_end(6)
-    inner_content_horizontal_split = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
     is_read = bool(email.get("read", False))
     title = str(email.get("subject", "") or "(No subject)")
     if not is_read:
@@ -104,22 +119,25 @@ def makeEmailRow(email, on_clicked_callback=None):
     top_em_box.append(email_date)
     inner_content.append(top_em_box)
     inner_content.append(email_title)
-
-    selected_tick_box = Gtk.Box()
-    if email.get("uid") in getattr(on_clicked_callback, "selected_emails", set()):
-        tick = Gtk.Image.new_from_icon_name("checkbox-symbolic")
-        selected_tick_box.append(tick)
-    inner_content_horizontal_split.append(selected_tick_box)
-    inner_content_horizontal_split.append(inner_content)
-
-    em_box.append(inner_content_horizontal_split)
+    em_box.append(inner_content)
     container.append(em_box)
     if email["attachments"]:
         inner_content.append(attachments_container)
+
     but = Gtk.Button()
     but.set_child(container)
+
+    # In select mode, clicking toggles checkbox
+    # In normal mode, clicking opens email
     if on_clicked_callback:
-        but.connect("clicked", lambda btn: on_clicked_callback(email))
+        def on_button_clicked(btn):
+            if select_mode:
+                checkbox.set_active(not checkbox.get_active())
+            else:
+                on_clicked_callback(email)
+
+        but.connect("clicked", on_button_clicked)
+
     return but
 
 
@@ -208,7 +226,7 @@ def _format_email_date(email: dict) -> str:
 
     try:
         return f"Got at {parsedate_to_datetime(raw_date).strftime('%H:%M %d-%m-%Y ')}"
-    except TypeError, ValueError, IndexError, OverflowError:
+    except (TypeError, ValueError, IndexError, OverflowError):
         fetched_at = str(email.get("fetched_at", "") or "")
         return f"No date. Arrived at {fetched_at}" if fetched_at else raw_date
 
@@ -236,45 +254,58 @@ class EmailsView(Gtk.Box):
         self.email_details = self.make_email_details()
         self.email_extended.set_child(self.email_details)
         self.clicked_email_id = ""
+
+        # Selection state
         self.select_mode = False
         self.selected_emails = set()
 
-        def handleSelectMode(self):
-            if self.select_mode:
-                print("disablign selecting")
-                self.select_mode = False
-                toolbar_enter_select_mode_content.set_label("Select emails")
-                toolbar_enter_select_mode.remove_css_class("suggested-action")
-            else:
-                print("enablin selectin")
-                self.select_mode = True
-                toolbar_enter_select_mode_content.set_label("Exit selection")
-                toolbar_enter_select_mode.add_css_class("suggested-action")
-
         scroll_window_parent = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        # toolbar buttons
-        toolbar_enter_select_mode = Gtk.Button()
+        toolbar.set_margin_start(6)
+        toolbar.set_margin_end(6)
+        toolbar.set_margin_top(6)
+
+        # Selection info label
+        self.selection_label = Gtk.Label(label="")
+        self.selection_label.add_css_class("caption")
+        self.selection_label.set_hexpand(True)
+        self.selection_label.set_xalign(0)
+        toolbar.append(self.selection_label)
+
+        # Select mode toggle button
+        self.toolbar_enter_select_mode = Gtk.Button()
         toolbar_enter_select_mode_content = Adw.ButtonContent(
             icon_name="selection-mode-symbolic",
-            label="Select emails"
+            label="Select"
         )
-        toolbar_mark_read = Gtk.Button()
+        self.toolbar_enter_select_mode.set_child(toolbar_enter_select_mode_content)
+        self.toolbar_enter_select_mode.connect("clicked", self._on_toggle_select_mode)
+
+        # Mark read button
+        self.toolbar_mark_read = Gtk.Button()
         toolbar_mark_read_content = Adw.ButtonContent(
             icon_name="mail-mark-notjunk-symbolic",
             label="Mark read",
         )
-        toolbar_email_delete = Gtk.Button()
+        self.toolbar_mark_read.set_child(toolbar_mark_read_content)
+        self.toolbar_mark_read.set_visible(False)
+
+        # Delete button
+        self.toolbar_email_delete = Gtk.Button()
         toolbar_email_delete_content = Adw.ButtonContent(
             icon_name="edit-delete-symbolic", label="Delete"
         )
-        toolbar_enter_select_mode.set_child(toolbar_enter_select_mode_content)
-        toolbar_mark_read.set_child(toolbar_mark_read_content)
-        toolbar_email_delete.set_child(toolbar_email_delete_content)
-        toolbar_enter_select_mode.connect("clicked", lambda btn: handleSelectMode(self))
-        toolbar.append(toolbar_enter_select_mode)
-        toolbar.append(toolbar_mark_read)
-        toolbar.append(toolbar_email_delete)
+        self.toolbar_email_delete.set_child(toolbar_email_delete_content)
+        self.toolbar_email_delete.set_visible(False)
+
+        toolbar.append(self.toolbar_mark_read)
+        toolbar.append(self.toolbar_email_delete)
+        toolbar.append(self.toolbar_enter_select_mode)
+
+        # Connect bulk action handlers
+        self.toolbar_mark_read.connect("clicked", self._on_mark_selected_read)
+        self.toolbar_email_delete.connect("clicked", self._on_delete_selected)
+
         scroll_window_parent.append(toolbar)
         scroll_window = Gtk.ScrolledWindow()
         scroll_window_parent.append(scroll_window)
@@ -288,6 +319,42 @@ class EmailsView(Gtk.Box):
         )
         self.append(self.main_container)
         self.refetch_emails()
+
+    def _on_toggle_select_mode(self, button):
+        """Toggle selection mode on/off."""
+        self.select_mode = not self.select_mode
+
+        if self.select_mode:
+            self.toolbar_enter_select_mode.add_css_class("suggested-action")
+            self.toolbar_mark_read.set_visible(True)
+            self.toolbar_email_delete.set_visible(True)
+        else:
+            self.toolbar_enter_select_mode.remove_css_class("suggested-action")
+            self.toolbar_mark_read.set_visible(False)
+            self.toolbar_email_delete.set_visible(False)
+            for email in self.emails:
+                email["_selected"] = False
+
+        # rerender emails
+        self._clear_email_list()
+        self._render_emails(self.emails)
+        self._update_selection_label()
+
+    def _update_selection_label(self):
+        """Update the selection count label."""
+        selected_count = sum(1 for email in self.emails if email.get("_selected", False))
+        total_count = len(self.emails)
+
+        if selected_count == 0 or not self.select_mode:
+            self.selection_label.set_label("")
+        elif selected_count == total_count:
+            self.selection_label.set_label(f"All {total_count} selected")
+        else:
+            self.selection_label.set_label(f"{selected_count} of {total_count} selected")
+
+    def _get_selected_emails(self) -> list[dict]:
+        """Return list of selected emails."""
+        return [email for email in self.emails if email.get("_selected", False)]
 
     def _update_pane_position(self):
         width = self.main_container.get_width()
@@ -443,10 +510,108 @@ class EmailsView(Gtk.Box):
         return self._inject_theme_style("<i>No message body</i>")
 
     def _on_email_reply_clicked(self):
+        """Reply to email"""
         if self.selected_email is None:
             return
         if callable(self._on_reply_requested):
             self._on_reply_requested(self.selected_email)
+
+    def _on_mark_selected_read(self, button):
+        """Mark all selected emails as read."""
+        selected = self._get_selected_emails()
+        if not selected:
+            return
+
+        print(f"Marking {len(selected)} emails as read")
+        for email in selected:
+            if not bool(email.get("read", False)):
+                self._sync_email_read_state(email, True)
+
+        self.select_mode = False
+        self.toolbar_enter_select_mode.remove_css_class("suggested-action")
+        self._clear_email_list()
+        self._render_emails(self.emails)
+        self._update_selection_label()
+
+    def _on_delete_selected(self, button):
+        """Delete all selected emails with confirmation."""
+        selected = self._get_selected_emails()
+        if not selected:
+            return
+
+        parent = self.get_root()
+        dialog = Adw.AlertDialog.new()
+        dialog.set_heading(f"Sure to delete {len(selected)} emails?")
+        dialog.set_body("You can't undo this, they will be also deleted from server")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def on_response(d, response, user_data):
+            if response == "delete":
+                self._perform_delete_selected(selected)
+
+        if isinstance(parent, Gtk.Window):
+            dialog.choose(parent, None, on_response, None)
+        else:
+            dialog.choose(None, None, on_response, None)
+
+    def _perform_delete_selected(self, selected: list[dict]):
+        """Actually delete the emails from the backend and UI"""
+        print(f"Deleting {len(selected)} emails")
+
+        # Group emails by account
+        emails_by_account: dict[str, list[str]] = {}
+        for email in selected:
+            account = str(email.get("account", ""))
+            uid = str(email.get("uid", ""))
+            if account and uid:
+                if account not in emails_by_account:
+                    emails_by_account[account] = []
+                emails_by_account[account].append(uid)
+
+        # Delete from backend in a thread
+        def delete_thread():
+            for account, uids in emails_by_account.items():
+                # Delete from IMAP server
+                deleted_count, error = delete_emails_batch(account, uids)
+                if error:
+                    print(f"Error deleting emails from {account}: {error}")
+                else:
+                    print(f"Successfully deleted {deleted_count} emails from {account}")
+
+                # Delete from local database
+                if delete_emails_from_db(account, uids):
+                    print(f"Deleted {len(uids)} emails from database for {account}")
+                else:
+                    print(f"Failed to delete emails from database for {account}")
+
+            # Update UI on main thread
+            GLib.idle_add(self._finalize_delete, selected)
+
+        thread = threading.Thread(target=delete_thread, daemon=True)
+        thread.start()
+
+    def _finalize_delete(self, deleted_emails: list[dict]):
+        """Finalize the UI after deletion"""
+        # Remove deleted emails from list
+        for email in deleted_emails:
+            if email in self.emails:
+                self.emails.remove(email)
+
+        # Close email detail pane if selected email was deleted
+        if self.selected_email in deleted_emails:
+            self.email_extended.set_visible(False)
+            self.selected_email = None
+            self.clicked_email_id = ""
+            self._update_pane_position()
+
+        # Exit select mode and re-render
+        self.select_mode = False
+        self.toolbar_enter_select_mode.remove_css_class("suggested-action")
+        self._clear_email_list()
+        self._render_emails(self.emails)
+        self._update_selection_label()
 
     def make_email_details(self):
         def copy_sender(_button):
@@ -530,8 +695,11 @@ class EmailsView(Gtk.Box):
 
     def _load_emails_from_cache(self):
         self.emails = get_all_emails_cached()
+        for email in self.emails:
+            email["_selected"] = False
         self._clear_email_list()
         self._render_emails(self.emails)
+        self._update_selection_label()
 
     def _sync_emails_thread(self):
         self.updating = True
@@ -555,15 +723,25 @@ class EmailsView(Gtk.Box):
 
     def _render_emails(self, emails):
         for email in emails:
-            email_row = makeEmailRow(email, self.on_email_clicked)
+            is_selected = email.get("_selected", False)
+            email_row = makeEmailRow(
+                email,
+                self.on_email_clicked,
+                is_selected=is_selected,
+                select_mode=self.select_mode,
+                on_selection_changed=self._update_selection_label
+            )
             self.email_list.append(email_row)
 
     def _on_emails_updated(self, emails=None):
         if emails is not None:
             self.emails = emails
+            for email in self.emails:
+                email["_selected"] = False
         if self.update_indicator:
             self.update_indicator.set_visible(False)
         self.updating = False
         self._clear_email_list()
         print(f"Updated with {len(self.emails)} emails")
         self._render_emails(self.emails)
+        self._update_selection_label()

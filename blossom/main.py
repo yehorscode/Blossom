@@ -47,5 +47,6 @@ class BlossomApp(Adw.Application):
         self.quit()
 
 
-app = BlossomApp()
-app.run(sys.argv)
+if __name__ == "__main__":
+    app = BlossomApp()
+    app.run(sys.argv)
